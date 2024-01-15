@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "bucketbrigade"
+version = "0.0.1"
+description = ""
+authors = ["Doug Hudgeon <doug.hudgeon@managedfunctions.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+s3fs = {extras = ["boto3"], version = ">=2023.12.0"}
+boto3 = "*"
+botocore = "*"
+pydantic = "^2.3.0"
+modal = "^0.56.4590"
+pandas = "^2.1.4"
+arrow = "^1.3.0"
+
+[tool.poetry.group.dev.dependencies]
+notebook = "^7.0.3"
+jupyterlab = "^4.0.5"
+pytest = "^7.4.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
