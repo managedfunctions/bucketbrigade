@@ -1,7 +1,18 @@
+import arrow
 import boto3
-from datetime import datetime, timezone
-from botocore.exceptions import ClientError
+import csv
+import dateutil
+import json
+import io
+import numpy as np
+import pandas as pd
+import re
 
+from bucketbrigade import core as bbcore
+
+from datetime import datetime, timezone, date
+from botocore.exceptions import ClientError
+from xml.etree import ElementTree as ET
 
 def bucket_key_from_docpath(docpath):
     """
@@ -103,6 +114,193 @@ def get_docpaths_to_process(parent_folder, include_string=""):
     # List documents in the input path
     input_docpaths = list_docs(parent_folder, include_string=include_string)
     # Get names of documents in the output folders
-    output_docnames = get_output_docnames(parent_folder, include_string=include_string)
+    # output_docnames = get_output_docnames(parent_folder, include_string=include_string)
+    output_docnames = []
     # Filter out documents that are already in the output folders
     return [x for x in input_docpaths if x.split("/")[-1] not in output_docnames]
+
+def make_dated_filename(docpath, timezone="Australia/Sydney"):
+    short_timezone_today = arrow.utcnow().to(timezone).format("YYYYMMDDHHmmss")
+    docpath_parts = docpath.rsplit("/", 1)
+    if len(docpath_parts) == 2:
+        docpath_parts[0] = f"{docpath_parts[0]}/"
+    docname = docpath_parts[-1]
+    try:
+        date_found = dateutil.parser.parse(docname[:8], yearfirst=True)
+        return f"{docpath}"
+    except:
+        return f"{docpath_parts[0]}{short_timezone_today}_{docname}"
+
+def create_content(docpath):
+    bucket_name, prefix = bucket_key_from_docpath(docpath)
+    s3 = boto3.client("s3")
+    obj = s3.get_object(Bucket=bucket_name, Key=prefix)
+    body = obj["Body"]
+    content = body.read()
+    try:
+        content = content.decode("utf-8")
+    except:
+        pass
+    return body, content
+
+def doc_exists(docpath, s3_additional_kwargs=None, boto3_session=None, version_id=None):
+    """Check if a file exists in S3."""
+    s3 = boto3.client("s3")
+    bucket, key = bucket_key_from_docpath(docpath)
+
+    try:
+        if version_id:
+            response = s3.head_object(Bucket=bucket, Key=key, VersionId=version_id)
+        else:
+            response = s3.head_object(Bucket=bucket, Key=key)
+
+        return True
+    except ClientError as ex:
+        if ex.response["Error"]["Code"] == "404":
+            return False
+        raise ex
+
+
+def read_doc(docpath, sheet_name=0, cat=False):
+    body, content = create_content(docpath)
+
+    if cat:
+        return content
+
+    if isinstance(content, str):
+        try:
+            json_data = bbcore.parse_xml(content, remove_line_breaks=False)
+            return json.dumps(json_data)
+        except:
+            pass
+
+        try:
+            return json.loads(content)
+        except:
+            pass
+
+        try:
+            num_commas = [line.count(",") for line in content.splitlines()]
+            if len(num_commas) > 0 and all(count > 0 for count in num_commas):
+                try:
+                    csv.reader(content, delimiter=",")
+                    return pd.read_csv(docpath)
+                except:
+                    pass
+        except:
+            pass
+
+        return content
+
+    try:
+        df = pd.read_excel(docpath, sheet_name=sheet_name)
+        print("Excel")
+        return df
+    except:
+        pass
+
+    try:
+        df = pd.read_parquet(docpath, engine="fastparquet")
+        if "index" in df.columns:
+            df = df.set_index(["index"])
+        return df
+    except:
+        pass
+
+    return content
+
+
+def convert_df_list_column_to_json(df):
+    if df.shape[0]:
+        for col in df.columns:
+            if isinstance(df.iloc[0][col], bytes):
+                try:
+                    df[col] = df[col].apply(lambda x: x.decode("utf-8"))
+                except:
+                    pass
+            if isinstance(df.iloc[0][col], list):
+                df[col] = df[col].apply(lambda x: json.dumps(x))
+                df[col] = df[col].astype(str)
+    return df
+
+
+def save_doc(docpath, doc, dated=True, timezone="Australia/Sydney"):
+    class NpEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            elif isinstance(obj, np.floating):
+                return float(obj)
+
+    if dated:
+        docpath = make_dated_filename(docpath, timezone)
+    s3 = boto3.client("s3")
+    bucket_name, prefix = bucket_key_from_docpath(docpath)
+
+    try:
+        doctype = "ET"
+        doc = ET.tostring(doc, encoding="unicode")
+    except:
+        pass
+
+    doctype = "text"
+    if isinstance(doc, pd.DataFrame):
+        doctype = "dataframe"
+        if doc.index.name not in doc.columns:
+            try:
+                doc = doc.reset_index()
+            except:
+                pass
+        doc = convert_df_list_column_to_json(doc)
+        doc = doc.convert_dtypes()
+    elif isinstance(doc, ET.Element):
+        doctype = "ET"
+        doc = bbcore.parse_xml(ET.tostring(doc, encoding="unicode"))
+    elif isinstance(doc, dict):
+        doctype = "dict"
+        doc = json.dumps(doc, indent=4, cls=NpEncoder).encode("utf-8")
+    elif isinstance(doc, list):
+        doctype = "list"
+        doc = json.dumps(doc, indent=4, cls=NpEncoder).encode("utf-8")
+    elif isinstance(doc, str):
+        try:
+            doc = json.loads(doc).encode("utf-8")
+            doctype = "json"
+        except:
+            doc = doc.encode("utf-8")
+    try:
+        if isinstance(doc, pd.DataFrame):
+            doc.to_parquet(docpath, engine="fastparquet")
+        else:
+            s3.upload_fileobj(io.BytesIO(doc), Bucket=bucket_name, Key=prefix)
+
+        print(f"Saved doc as {doctype} to {docpath}")
+        return {doctype: docpath}
+    except Exception as e:
+        print(e)
+        return {doctype: ""}
+
+
+def delete_doc(path):
+    # Create an S3 client
+    s3 = boto3.client("s3")
+    bucket_name, prefix = bucket_key_from_docpath(path)
+    # Delete the object
+    s3.delete_object(Bucket=bucket_name, Key=prefix)
+
+    print(f"Object {prefix} was successfully deleted from bucket {bucket_name}.")
+
+
+def mark_completed(current_path, doc, delete_original=True):
+    new_path = str(current_path).replace("/input_folder/", "/output_folder/")
+    archive_path = str(current_path).replace("/input_folder/", "/archive_input_folder/")
+    print(current_path)
+    print(new_path)
+    if new_path != current_path:
+        save_output = save_doc(new_path, doc, dated=False)
+        save_doc(archive_path, doc, dated=False)
+        if delete_original and doc_exists(new_path) and doc_exists(archive_path):
+            delete_doc(current_path)
+        return save_output
