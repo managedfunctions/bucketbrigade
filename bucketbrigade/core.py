@@ -1,12 +1,51 @@
 import arrow
 import re
 
+from decimal import ROUND_HALF_UP, ROUND_UP, Decimal, InvalidOperation
+from typing import Annotated, Any, List, Optional, Type
 from xml.etree import ElementTree as ET
 
 from pydantic import (
     BaseModel,
     computed_field,
 )
+
+def rx(n, x=2):
+    """Round a number to a specified number of decimal places with ROUND_HALF_UP."""
+    try:
+        # Create a string representing the format, e.g., '0.00' for 2 decimal places
+        format_str = f"0.{'0' * x}"
+        # Ensure n is a Decimal, which can handle float, int, or string input
+        result = Decimal(str(n)).quantize(Decimal(format_str), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, TypeError, ValueError):
+        # Handle cases where n is None or not a valid number
+        raise ValueError(f"Invalid input for decimal conversion: {n}")
+    return result
+
+
+def Rxp(decimal_places: int):
+    class RoundedDecimal(Decimal):
+        @classmethod
+        def __get_validators__(cls):
+            yield cls.validate
+
+        @classmethod
+        def validate(cls, v: Any) -> Decimal:
+            if not isinstance(v, (float, int, Decimal)):
+                raise ValueError(f"Value {v} is not a valid decimal/float/int")
+            format_str = f"0.{'0' * decimal_places}"
+            return Decimal(str(v)).quantize(Decimal(format_str), rounding=ROUND_HALF_UP)
+
+        @classmethod
+        def __get_pydantic_core_schema__(cls, **kwargs):
+            return {
+                'type': 'number',
+                'format': 'decimal',
+                'decimal_places': decimal_places
+            }
+
+    return RoundedDecimal
+
 
 def snake(input_str: str, ignore_dot: bool = False) -> str:
     if ignore_dot:
