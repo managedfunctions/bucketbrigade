@@ -120,6 +120,26 @@ def parse_xml(xml_string):
     return etree_to_dict(tree.getroot())
 
 
+def flatten_dict(dictionary, parent_key='', sep='_', snake_keys=True):
+    items = {}
+    for k, v in dictionary.items():
+        if snake_keys:
+            k = snake(k)
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.update(flatten_dict(v, new_key, sep=sep))
+        elif isinstance(v, list):
+            for idx, item in enumerate(v):
+                list_key = f"{new_key}{sep}{idx}"
+                if isinstance(item, (dict, list)):
+                    items.update(flatten_dict(item, list_key, sep=sep))
+                else:
+                    items[list_key] = item
+        else:
+            items[new_key] = v
+    return items
+
+
 def validate_df(df: pd.DataFrame, model: Type[BaseModel], drop_missing=True, return_errors=False, print_errors=True) -> pd.DataFrame:
     # Extract aliases and rename DataFrame columns based on aliases
     field_to_alias = {field_name: field.alias for field_name, field in model.__annotations__.items() if hasattr(field, 'alias')}
@@ -160,3 +180,11 @@ def validate_df(df: pd.DataFrame, model: Type[BaseModel], drop_missing=True, ret
             validated_df.at[idx, error_col_name] = str(error)
 
     return validated_df
+
+def model_instance_to_dataframe(model_instance: BaseModel) -> pd.DataFrame:
+    data = {
+        key: value
+        for key, value in model_instance.model_dump().items()
+        if not callable(value)
+    }
+    return pd.DataFrame.from_dict(data, orient="index")    
