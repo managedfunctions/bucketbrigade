@@ -160,6 +160,58 @@ def doc_exists(docpath, s3_additional_kwargs=None, boto3_session=None, version_i
             return False
         raise ex
 
+def copy_doc(src_path, destination_parent_path, new_docname=None):
+    # Get the docname from the source path
+    docname = src_path.split("/")[-1]
+
+    # Check if new_docname is provided, use it instead of the original docname
+    if new_docname:
+        docname = new_docname
+
+    # Handle case where destination_parent_path is the same as src_path
+    if src_path.split("/")[-1] == destination_parent_path.split("/")[-1]:
+        destination_parent_path = destination_parent_path.replace(
+            src_path.split("/")[-1], ""
+        )
+
+    # Ensure the destination_parent_path ends with a '/'
+    if not destination_parent_path.endswith("/"):
+        destination_parent_path += "/"
+
+    # Get the bucket and key from the source path
+    src_bucket, src_key = bucket_key_from_docpath(src_path)
+
+    # Append the docname (or new_docname) to the destination_parent_path
+    dest_path = destination_parent_path + docname
+    print(dest_path)
+
+    # Get the bucket and key from the destination path
+    dest_bucket, dest_key = bucket_key_from_docpath(dest_path)
+
+    # Initialize the boto3 S3 client
+    s3 = boto3.client("s3")
+
+    # Copy the file from the source bucket to the destination bucket
+    s3.copy_object(
+        CopySource={"Bucket": src_bucket, "Key": src_key},
+        Bucket=dest_bucket,
+        Key=dest_key,
+    )
+
+    return dest_path
+
+def skip_doc(current_path, delete_original=True):
+    try:
+        new_path = current_path.replace("input_folder", "skip_folder")
+        stripped_path = "/".join(new_path.strip("/").split("/")[:-1]) + "/"
+        copy_doc(current_path, stripped_path)
+        if delete_original and doc_exists(new_path):
+            delete_doc(current_path)
+    except:
+        raise Exception
+    print(f"Moved doc to {new_path}")
+    return ""
+
 
 def read_doc(docpath, sheet_name=0, cat=False):
     body, content = create_content(docpath)
