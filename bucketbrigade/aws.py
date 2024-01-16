@@ -113,6 +113,9 @@ def get_docpaths_to_process(parent_folder, include_string=""):
     """
     # List documents in the input path
     input_docpaths = list_docs(parent_folder, include_string=include_string)
+    if include_string:
+        input_docpaths.extend([x for x in list_docs(parent_folder.replace('/input_folder/', '/output_folder/'), include_string=include_string)])
+        input_docpaths.extend([x for x in list_docs(parent_folder.replace('/input_folder/', '/skip_folder/'), include_string=include_string)])
     # Get names of documents in the output folders
     # output_docnames = get_output_docnames(parent_folder, include_string=include_string)
     output_docnames = []
