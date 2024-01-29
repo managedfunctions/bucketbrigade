@@ -1,18 +1,18 @@
+import csv
+import io
+import json
+from datetime import date, datetime, timezone
+from xml.etree import ElementTree as ET
+
 import arrow
 import boto3
-import csv
 import dateutil
-import json
-import io
 import numpy as np
 import pandas as pd
-import re
+from botocore.exceptions import ClientError
 
 from bucketbrigade import core as bbcore
 
-from datetime import datetime, timezone, date
-from botocore.exceptions import ClientError
-from xml.etree import ElementTree as ET
 
 def bucket_key_from_docpath(docpath):
     """
@@ -74,7 +74,9 @@ def list_docs(parent_folder, start=None, end=None, include_string=""):
         return []
 
 
-def get_output_docnames(parent_folder, include_string="", output_folders=["skip_folder", "output_folder"]):
+def get_output_docnames(
+    parent_folder, include_string="", output_folders=["skip_folder", "output_folder"]
+):
     """
     Generates a list of document names in specified output folders.
 
@@ -86,7 +88,7 @@ def get_output_docnames(parent_folder, include_string="", output_folders=["skip_
     - A list of document names present in the 'skip_folder' and 'output_folder'.
     """
     output_docpaths = []
-    input_folder = parent_folder.split('/')[-1]
+    input_folder = parent_folder.split("/")[-1]
     for folder_name in output_folders:
         # Construct the path for the current folder
         output_path = parent_folder.replace(f"/{input_folder}", f"/{folder_name}")
@@ -114,13 +116,21 @@ def get_docpaths_to_process(parent_folder, include_string=""):
     # List documents in the input path
     input_docpaths = list_docs(parent_folder, include_string=include_string)
     if include_string:
-        input_docpaths.extend([x for x in list_docs(parent_folder.replace('/input_folder/', '/output_folder/'), include_string=include_string)])
-        input_docpaths.extend([x for x in list_docs(parent_folder.replace('/input_folder/', '/skip_folder/'), include_string=include_string)])
+        input_docpaths.extend(
+            [
+                x
+                for x in list_docs(
+                    parent_folder.replace("/input_folder", "/archive_input_folder"),
+                    include_string=include_string,
+                )
+            ]
+        )
     # Get names of documents in the output folders
     # output_docnames = get_output_docnames(parent_folder, include_string=include_string)
     output_docnames = []
     # Filter out documents that are already in the output folders
     return [x for x in input_docpaths if x.split("/")[-1] not in output_docnames]
+
 
 def make_dated_filename(docpath, timezone="Australia/Sydney"):
     short_timezone_today = arrow.utcnow().to(timezone).format("YYYYMMDDHHmmss")
@@ -134,6 +144,7 @@ def make_dated_filename(docpath, timezone="Australia/Sydney"):
     except:
         return f"{docpath_parts[0]}{short_timezone_today}_{docname}"
 
+
 def create_content(docpath):
     bucket_name, prefix = bucket_key_from_docpath(docpath)
     s3 = boto3.client("s3")
@@ -145,6 +156,7 @@ def create_content(docpath):
     except:
         pass
     return body, content
+
 
 def doc_exists(docpath, s3_additional_kwargs=None, boto3_session=None, version_id=None):
     """Check if a file exists in S3."""
@@ -162,6 +174,7 @@ def doc_exists(docpath, s3_additional_kwargs=None, boto3_session=None, version_i
         if ex.response["Error"]["Code"] == "404":
             return False
         raise ex
+
 
 def copy_doc(src_path, destination_parent_path, new_docname=None):
     # Get the docname from the source path
@@ -202,6 +215,7 @@ def copy_doc(src_path, destination_parent_path, new_docname=None):
     )
 
     return dest_path
+
 
 def skip_doc(current_path, delete_original=True):
     try:
@@ -349,13 +363,13 @@ def delete_doc(path):
 
 
 def mark_completed(current_path, doc, delete_original=True):
-    new_path = str(current_path).replace("/input_folder/", "/output_folder/")
-    archive_path = str(current_path).replace("/input_folder/", "/archive_input_folder/")
+    new_path = str(current_path).replace("/input_folder", "/output_folder")
+    archive_path = str(current_path).replace("/input_folder", "/archive_input_folder")
     print(current_path)
     print(new_path)
     if new_path != current_path:
         save_output = save_doc(new_path, doc, dated=False)
-        save_doc(archive_path, doc, dated=False)
+        copy_doc(current_path, archive_path)
         if delete_original and doc_exists(new_path) and doc_exists(archive_path):
             delete_doc(current_path)
         return save_output
