@@ -4,7 +4,9 @@ from pydantic import (
     BaseModel,
     computed_field,
 )
+from typing import Optional
 
+arrow.now().isoformat()
 
 
 def snake(input_str: str, ignore_dot: bool = False) -> str:
@@ -30,8 +32,9 @@ class Metadata(BaseModel):
     bucket: str
     pipe: str
     folder: str
+    partner_name: Optional[str] = ""
     environment: str = "prod"
-    timezone: str
+    timezone: str = "Australia/Sydney"
 
     class Config:
         arbitrary_types_allowed = True
@@ -82,4 +85,14 @@ class Metadata(BaseModel):
 
     @computed_field
     def now_prefix(self) -> str:
-        return arrow.now(self.timezone).isoformat("YYYYMMDDHHmmss")
+        return arrow.now(self.timezone).format("YYYYMMDDHHmmss")
+
+
+def get_metadata_from_docpath(docpath):
+    docpath_parts = docpath.split("//")[-1].split("/")
+    return Metadata(
+        bucket=docpath_parts[0],
+        pipe=docpath_parts[1],
+        folder=docpath_parts[2],
+        environment=docpath_parts[3],
+    )
