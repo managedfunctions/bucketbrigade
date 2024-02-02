@@ -1,3 +1,4 @@
+import base64
 import csv
 import io
 import json
@@ -293,7 +294,7 @@ def convert_df_list_column_to_json(df):
     return df
 
 
-def save_doc(docpath, doc, dated=True, timezone="Australia/Sydney"):
+def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
     class NpEncoder(json.JSONEncoder):
         def default(self, obj):
             if isinstance(obj, np.integer):
@@ -308,6 +309,20 @@ def save_doc(docpath, doc, dated=True, timezone="Australia/Sydney"):
     s3 = boto3.client("s3")
     bucket_name, prefix = bucket_key_from_docpath(docpath)
 
+    if pipe:
+        try:
+            doc = base64.b64decode(doc)
+        except Exception:
+            try:
+                doc = doc.encode("utf-8")
+            except Exception as e:
+                print("Not base64 encoded or utf-8 encoded")
+                print(e)
+                pass
+
+        print(doc)
+        s3.put_object(Body=doc, Bucket=bucket_name, Key=prefix)
+        return {'bytes': docpath}
     try:
         doctype = "ET"
         doc = ET.tostring(doc, encoding="unicode")
@@ -350,6 +365,7 @@ def save_doc(docpath, doc, dated=True, timezone="Australia/Sydney"):
     except Exception as e:
         print(e)
         return {doctype: ""}
+
 
 
 def delete_doc(path):

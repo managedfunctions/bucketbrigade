@@ -236,8 +236,8 @@ def save_email_and_attachments(metadata, canonical_email):
         f"{metadata.pipe_path}/email_attachments/{metadata.environment}/input_folder"
     )
     bbaws.save_doc(
-        canonical_email.clean_message,
         f"{email_body_path}/{canonical_email.docname}",
+        canonical_email.clean_message,
         dated=False,
     )
     if canonical_email.attachments:
@@ -256,7 +256,7 @@ def save_email_and_attachments(metadata, canonical_email):
                     f"{canonical_email.docname}_{attachment_filename}{full_extension}"
                 )
                 print(attachment_name)
-                bbaws.put_doc(attachment_content, f"{attachment_path}/{attachment_name}")
+                bbaws.save_doc(f"{attachment_path}/{attachment_name}", attachment_content, pipe=True)
 
 
 
