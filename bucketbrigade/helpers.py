@@ -7,6 +7,7 @@ import pandas as pd
 from pydantic import BaseModel, ValidationError, parse_obj_as
 
 from bucketbrigade import core as bbcore
+from bucketbrigade import aws as bbaws
 
 
 def rx(n, x=2):
@@ -218,3 +219,36 @@ def explode_df_on_column(df, column):
     df_result = df_result.drop(columns=[column, "original_index"])
     df_result.columns = [bbcore.snake(x) for x in df_result.columns]
     return df_result
+
+
+
+def save_email_and_attachments(metadata, canonical_email):
+    email_body_path = (
+        f"{metadata.pipe_path}/email_body/{metadata.environment}/input_folder"
+    )
+    attachment_path = (
+        f"{metadata.pipe_path}/email_attachments/{metadata.environment}/input_folder"
+    )
+    bbaws.save_doc(
+        canonical_email.clean_message,
+        f"{email_body_path}/{canonical_email.docname}",
+        dated=False,
+    )
+    if canonical_email.attachments:
+        for msg_attachment in canonical_email.attachments:
+            print(msg_attachment.filename)
+            if '.' in msg_attachment.filename:
+                attachment_content = msg_attachment.payload
+                attachment_filename, attachment_extension = msg_attachment.filename.rsplit(
+                    ".", 1
+                )
+                attachment_filename = bbcore.snake(f"{attachment_filename}")
+                if attachment_extension:
+                    attachment_extension = attachment_extension.lower()
+                    full_extension = f".{attachment_extension}"
+                attachment_name = (
+                    f"{canonical_email.docname}_{attachment_filename}{full_extension}"
+                )
+                print(attachment_name)
+                bbaws.put_doc(attachment_content, f"{attachment_path}/{attachment_name}")
+
