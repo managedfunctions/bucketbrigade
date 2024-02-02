@@ -219,15 +219,13 @@ def copy_doc(src_path, destination_parent_path, new_docname=None):
 
 
 def skip_doc(current_path, delete_original=True):
-    try:
+    if doc_exists(current_path):
         new_path = current_path.replace("input_folder", "skip_folder")
         stripped_path = "/".join(new_path.strip("/").split("/")[:-1]) + "/"
         copy_doc(current_path, stripped_path)
         if delete_original and doc_exists(new_path):
             delete_doc(current_path)
-    except:
-        raise Exception
-    print(f"Moved doc to {new_path}")
+        print(f"Moved doc to {new_path}")
     return ""
 
 
