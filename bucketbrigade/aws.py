@@ -121,7 +121,7 @@ def get_docpaths_to_process(parent_folder, include_string=""):
             [
                 x
                 for x in list_docs(
-                    parent_folder.replace("/input_folder", "/archive_input_folder"),
+                    parent_folder.replace("/input_folder", "/archive_folder"),
                     include_string=include_string,
                 )
             ]
@@ -318,7 +318,6 @@ def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
                 print(e)
                 pass
 
-        print(doc)
         s3.put_object(Body=doc, Bucket=bucket_name, Key=prefix)
         return {'bytes': docpath}
     try:
@@ -378,7 +377,7 @@ def delete_doc(path):
 
 def mark_completed(current_path, doc, delete_original=True):
     new_path = str(current_path).replace("/input_folder", "/output_folder")
-    archive_path = str(current_path).replace("/input_folder", "/archive_input_folder")
+    archive_path = str(current_path).replace("/input_folder", "/archive_folder")
     print(current_path)
     print(new_path)
     if new_path != current_path:

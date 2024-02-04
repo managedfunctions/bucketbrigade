@@ -59,8 +59,8 @@ class Metadata(BaseModel):
         return f"{self.folder_path}/input_folder"
 
     @computed_field
-    def archive_input_path(self) -> str:
-        return f"{self.folder_path}/archive_input_folder"
+    def archive_path(self) -> str:
+        return f"{self.folder_path}/archive_folder"
 
     @computed_field
     def output_path(self) -> str:
