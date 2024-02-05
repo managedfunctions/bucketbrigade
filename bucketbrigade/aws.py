@@ -2,6 +2,7 @@ import base64
 import csv
 import io
 import json
+import polars as pl
 from datetime import date, datetime, timezone
 from xml.etree import ElementTree as ET
 
@@ -386,3 +387,12 @@ def mark_completed(current_path, doc, delete_original=True):
         if delete_original and doc_exists(new_path) and doc_exists(archive_path):
             delete_doc(current_path)
         return save_output
+
+
+def read_parquet_list(s3_directory, filter_expr=None):
+    source = f"{s3_directory}/*"
+    lazy_query = pl.scan_parquet(source)
+    if filter_expr is not None:
+        lazy_query = lazy_query.filter(filter_expr)
+    df = lazy_query.collect()
+    return df
