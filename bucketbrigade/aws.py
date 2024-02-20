@@ -2,9 +2,14 @@ import base64
 import csv
 import io
 import json
-import polars as pl
 from datetime import date, datetime, timezone
+import re
 from xml.etree import ElementTree as ET
+from textractor import Textractor
+from textractor.data.constants import TextractFeatures
+from textractor.entities.document import Document
+
+import s3fs
 
 import arrow
 import boto3
@@ -15,6 +20,7 @@ from botocore.exceptions import ClientError
 
 from bucketbrigade import core as bbcore
 
+s3 = s3fs.S3FileSystem(anon=False, default_cache_type="none")
 
 def bucket_key_from_docpath(docpath):
     """
@@ -338,6 +344,9 @@ def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
         pass
 
     doctype = "text"
+    if isinstance(doc, pd.Series):
+        doc = pd.DataFrame([doc.to_dict()])
+        doctype = "dataframe"
     if isinstance(doc, pd.DataFrame):
         doctype = "dataframe"
         if doc.index.name not in doc.columns:
@@ -364,8 +373,9 @@ def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
             doc = doc.encode("utf-8")
     try:
         if isinstance(doc, pd.DataFrame):
-            doc.to_parquet(docpath, engine="fastparquet")
+            doc.to_parquet(docpath)
         else:
+            print('Uploading file. Is that right?')
             s3.upload_fileobj(io.BytesIO(doc), Bucket=bucket_name, Key=prefix)
 
         print(f"Saved doc as {doctype} to {docpath}")
@@ -394,15 +404,73 @@ def mark_completed(current_path, doc, delete_original=True):
     if new_path != current_path:
         save_output = save_doc(new_path, doc, dated=False)
         copy_doc(current_path, archive_path)
-        if delete_original and doc_exists(new_path) and doc_exists(archive_path):
+        if delete_original and doc_exists(new_path) and doc_exists(archive_path) and archive_path != current_path:
             delete_doc(current_path)
         return save_output
 
 
-def read_parquet_list(s3_directory, filter_expr=None):
-    source = f"{s3_directory}/*"
-    lazy_query = pl.scan_parquet(source)
-    if filter_expr is not None:
-        lazy_query = lazy_query.filter(filter_expr)
-    df = lazy_query.collect()
-    return df
+
+def list_folders(docpath: str, delimiter: str = '/') -> list:
+    """
+    List folders in an S3 bucket.
+
+    Parameters:
+    - bucket_name: Name of the S3 bucket.
+    - prefix: Filter folders starting with this prefix. Defaults to empty string, listing from the bucket root.
+    - delimiter: Delimiter to use for identifying folders. Defaults to '/'.
+
+    Returns:
+    - A list of folder names (prefixes) within the specified bucket.
+    """
+
+    s3 = s3fs.S3FileSystem(anon=False, default_cache_type="none")
+
+    folders = []
+    try:
+        folders = s3.ls(docpath, detail=False)
+    except:
+        pass
+    
+    return folders
+
+
+def get_textracted_document(
+    docpath, output="", always_extract=False, region_name="ap-southeast-2"
+):
+    extractor = Textractor(region_name=region_name)
+    print(extractor.__dict__)
+    features = []
+    docname = docpath.split("/")[-1]
+    textracted_path = f"{'/'.join(docpath.split('/')[:-2])}/textracted_folder/{docname}"
+
+    if not always_extract and doc_exists(textracted_path):
+        print("Reading existing textracted document")
+        document = read_doc(textracted_path)
+        return document
+
+    analyse = False
+    if "table" in output:
+        features.append(TextractFeatures.TABLES)
+        analyse = True
+    elif "form" in output:
+        features.append(TextractFeatures.FORMS)
+        analyse = True
+    elif "layout" in output:
+        features.append(TextractFeatures.LAYOUT)
+        analyse = True
+
+    if analyse:
+        document = extractor.start_document_analysis(
+            file_source=docpath,
+            features=features,
+            save_image=False,
+            s3_output_path=textracted_path,
+        )
+    else:
+        document = extractor.start_document_text_detection(
+            file_source=docpath, save_image=False, s3_output_path=textracted_path
+        )
+
+    save_doc(textracted_path, document.response)
+    print(f"Textracted document saved to {textracted_path}")
+    return document.response
