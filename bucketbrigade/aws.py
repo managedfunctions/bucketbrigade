@@ -22,6 +22,7 @@ from bucketbrigade import core as bbcore
 
 s3 = s3fs.S3FileSystem(anon=False, default_cache_type="none")
 
+
 def bucket_key_from_docpath(docpath):
     """
     Extracts the bucket name and key (prefix) from a full S3 document path.
@@ -336,7 +337,7 @@ def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
                 pass
 
         s3.put_object(Body=doc, Bucket=bucket_name, Key=prefix)
-        return {'bytes': docpath}
+        return {"bytes": docpath}
     try:
         doctype = "ET"
         doc = ET.tostring(doc, encoding="unicode")
@@ -375,7 +376,7 @@ def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
         if isinstance(doc, pd.DataFrame):
             doc.to_parquet(docpath)
         else:
-            print('Uploading file. Is that right?')
+            print("Uploading file. Is that right?")
             s3.upload_fileobj(io.BytesIO(doc), Bucket=bucket_name, Key=prefix)
 
         print(f"Saved doc as {doctype} to {docpath}")
@@ -383,7 +384,6 @@ def save_doc(docpath, doc, pipe=False, dated=True, timezone="Australia/Sydney"):
     except Exception as e:
         print(e)
         return {doctype: ""}
-
 
 
 def delete_doc(path):
@@ -404,13 +404,17 @@ def mark_completed(current_path, doc, delete_original=True):
     if new_path != current_path:
         save_output = save_doc(new_path, doc, dated=False)
         copy_doc(current_path, archive_path)
-        if delete_original and doc_exists(new_path) and doc_exists(archive_path) and archive_path != current_path:
+        if (
+            delete_original
+            and doc_exists(new_path)
+            and doc_exists(archive_path)
+            and archive_path != current_path
+        ):
             delete_doc(current_path)
         return save_output
 
 
-
-def list_folders(docpath: str, delimiter: str = '/') -> list:
+def list_folders(docpath: str, delimiter: str = "/") -> list:
     """
     List folders in an S3 bucket.
 
@@ -430,7 +434,7 @@ def list_folders(docpath: str, delimiter: str = '/') -> list:
         folders = s3.ls(docpath, detail=False)
     except:
         pass
-    
+
     return folders
 
 

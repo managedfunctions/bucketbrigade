@@ -128,7 +128,6 @@ def get_metadata_from_docpath(docpath):
 
 
 def setup_modal_image(stub_name, force_build=False):
-
     sdk = set_doppler()
     github_token = sdk.secrets.get(project="github", config="prod", name="GITHUB_TOKEN")
     github_token = vars(github_token)["value"]["computed"]
@@ -157,16 +156,22 @@ def setup_modal_image(stub_name, force_build=False):
     return image, stub
 
 
-def setup_function(docpath: str = "", 
-                   include_string: str = "", 
-                   path_number = 0, 
-                   secrets_config = "",
-                   secrets_provider = "doppler",
-                   use_lowercase = False,
-                   cloud=""
-                   ):
+def setup_function(
+    docpath: str = "",
+    include_string: str = "",
+    path_number=0,
+    secrets_config="",
+    secrets_provider="doppler",
+    use_lowercase=False,
+    cloud="",
+):
     metadata = get_metadata_from_docpath(docpath)
-    secrets = get_secrets(metadata, config=secrets_config, provider=secrets_provider, use_lowercase=use_lowercase)
+    secrets = get_secrets(
+        metadata,
+        config=secrets_config,
+        provider=secrets_provider,
+        use_lowercase=use_lowercase,
+    )
     if modal.is_local():
         docpaths_to_process = cloud.get_docpaths_to_process(
             metadata.input_path, include_string=include_string
@@ -175,10 +180,12 @@ def setup_function(docpath: str = "",
             print("\nNo docpaths to process.\n")
             return metadata, secrets, None
         elif len(docpaths_to_process) > 0:
-            print(f"\{len(docpaths_to_process)} docpaths to process. Here are the first five:\n")
+            print(
+                f"\{len(docpaths_to_process)} docpaths to process. Here are the first five:\n"
+            )
             for i, docpath in enumerate(docpaths_to_process[:5]):
                 docname = docpath.split("/")[-1]
-                print(i+1, docname)
+                print(i + 1, docname)
         docpath = docpaths_to_process[path_number]
     return metadata, secrets, docpath
 
@@ -202,27 +209,33 @@ def set_doppler(provider_key=""):
 def get_functions(function, environment="prod", provider="", project_prefix="mfs-"):
     if not provider or provider == "doppler":
         sdk = set_doppler()
-    results = sdk.projects.list(
-        page = 1,
-        per_page = 100
-    )
+    results = sdk.projects.list(page=1, per_page=100)
 
     all_configs = []
     relevant_configs = []
     projects = vars(results)["projects"]
-    projects = [project["slug"] for project in projects if project["slug"].startswith(project_prefix)]
+    projects = [
+        project["slug"]
+        for project in projects
+        if project["slug"].startswith(project_prefix)
+    ]
     for project in projects:
         configs = sdk.configs.list(project=project)
         configs = vars(configs)["configs"]
         for config in configs:
             if config["name"].startswith(environment) and config["name"] != environment:
-                system = '_'.join(config["name"].split("_")[1:])
-                config_object = {"project": project, "system": system, "environment": environment}
+                system = "_".join(config["name"].split("_")[1:])
+                config_object = {
+                    "project": project,
+                    "system": system,
+                    "environment": environment,
+                }
                 all_configs.append(config_object)
                 if function in config["name"]:
                     print(project, "->", config["name"])
                     relevant_configs.append(config_object)
     return relevant_configs
+
 
 def get_folder_from_variant(row):
     folder = row.variants.split("/")[-1]
@@ -231,28 +244,38 @@ def get_folder_from_variant(row):
     folder = folder.split("_variant_")[0]
     return folder
 
+
 def setup_project_db(cloud, provider="", project_prefix="mfs-"):
     if not provider or provider == "doppler":
         sdk = set_doppler()
-    results = sdk.projects.list(
-        page = 1,
-        per_page = 100
-    )
+    results = sdk.projects.list(page=1, per_page=100)
     environments = ["prod", "test"]
     directions = ["from", "to", "in"]
     all_configs = []
     projects = vars(results)["projects"]
-    projects = [project["slug"] for project in projects if project["slug"].startswith(project_prefix)]
+    projects = [
+        project["slug"]
+        for project in projects
+        if project["slug"].startswith(project_prefix)
+    ]
     for project in projects:
         print(project)
         configs = sdk.configs.list(project=project)
         configs = vars(configs)["configs"]
         for config in configs:
             if config["name"] not in environments:
-                system = '_'.join(config["name"].split("_")[1:])
+                system = "_".join(config["name"].split("_")[1:])
                 environment = config["name"].split("_")[0]
-                config_object = {"project": project, "system": system, "environment": environment}
-                variants = sdk.secrets.get(project=config_object["project"], config=f'{config_object["environment"]}_{config_object["system"]}', name="VARIANTS")
+                config_object = {
+                    "project": project,
+                    "system": system,
+                    "environment": environment,
+                }
+                variants = sdk.secrets.get(
+                    project=config_object["project"],
+                    config=f'{config_object["environment"]}_{config_object["system"]}',
+                    name="VARIANTS",
+                )
                 variants = vars(variants)["value"]["computed"]
                 if variants:
                     variants = load(variants, Loader=Loader)
@@ -261,10 +284,14 @@ def setup_project_db(cloud, provider="", project_prefix="mfs-"):
                 config_object["variants"] = variants
                 all_configs.append(config_object)
     df = pd.DataFrame(all_configs)
-    df = df.explode("variants") 
+    df = df.explode("variants")
     df.variants = df.variants.fillna("")
-    df["function_type"] = df.variants.apply(lambda x: "to_map" if "/" in x else "to_api")
-    df["direction"] = df.variants.apply(lambda x: x.split("_")[0] if x.split("_")[0] in directions else "")
+    df["function_type"] = df.variants.apply(
+        lambda x: "to_map" if "/" in x else "to_api"
+    )
+    df["direction"] = df.variants.apply(
+        lambda x: x.split("_")[0] if x.split("_")[0] in directions else ""
+    )
     df["folder"] = df.apply(get_folder_from_variant, axis=1)
     cloud.save_doc("s3://mfs-admin/configs/project_db.parquet", df, dated=False)
     return df
@@ -273,25 +300,25 @@ def setup_project_db(cloud, provider="", project_prefix="mfs-"):
 def get_functions_to_process(system, environment, cloud):
     df = pd.read_parquet("s3://mfs-admin/configs/project_db.parquet")
     df = df[(df.system == system) & (df.environment == environment)]
-    df = df[df.variants!=""]
-    return df[df.function_type=="to_map"], df[df.function_type=="to_api"]
+    df = df[df.variants != ""]
+    return df[df.function_type == "to_map"], df[df.function_type == "to_api"]
 
 
 def process_all_folders(df_to_map, functions, cloud):
-    dps = [] # to do: load up dps with everything to process and the run the map function
+    dps = []  # to do: load up dps with everything to process and the run the map function
     for k, row in df_to_map.iterrows():
         folder_path = f"s3://{row.project}/{row.variants}/{row.environment}"
         print(folder_path)
         metadata = get_metadata_from_docpath(folder_path)
         docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
-        process_function = getattr(functions, metadata.function) 
+        process_function = getattr(functions, metadata.function)
         errors = list(process_function.map(docpaths_to_process, return_exceptions=True))
     return errors
 
 
 def process_all_apis(df_to_api, functions, cloud):
     for k, row in df_to_api.iterrows():
-        process_function = getattr(functions, row.variants) 
+        process_function = getattr(functions, row.variants)
         print(process_function)
         metadata = Metadata(
             bucket=row.project,
@@ -303,8 +330,10 @@ def process_all_apis(df_to_api, functions, cloud):
         )
         process_function.local(metadata)
 
-def get_secrets(metadata, config="", provider="doppler", provider_key=None, use_lowercase=True):
 
+def get_secrets(
+    metadata, config="", provider="doppler", provider_key=None, use_lowercase=True
+):
     if provider == "doppler":
         sdk = set_doppler()
     # Build the config from metadata.system and metadata.environment
@@ -320,13 +349,15 @@ def get_secrets(metadata, config="", provider="doppler", provider_key=None, use_
         print(json.loads(e.message)["messages"][0])
         print()
         try:
-            results = sdk.secrets.list(project=metadata.bucket, config=metadata.environment)
+            results = sdk.secrets.list(
+                project=metadata.bucket, config=metadata.environment
+            )
         except Exception as e:
             print()
             print(json.loads(e.message)["messages"][0])
             print()
             print("Available configs for this project:")
-            config_list = vars(sdk.configs.list(project=metadata.bucket))['configs']
+            config_list = vars(sdk.configs.list(project=metadata.bucket))["configs"]
             print()
             for v in config_list:
                 print(" -", v["name"])
@@ -337,14 +368,19 @@ def get_secrets(metadata, config="", provider="doppler", provider_key=None, use_
     # Process secrets: filter out keys containing "DOPPLER" and adjust case based on flag
     if use_lowercase:
         processed_secrets = {
-            k.lower(): v["computed"] for k, v in rds_secrets.items() if "DOPPLER" not in k
+            k.lower(): v["computed"]
+            for k, v in rds_secrets.items()
+            if "DOPPLER" not in k
         }
     else:
         processed_secrets = {
-            k.upper(): v["computed"] for k, v in rds_secrets.items() if "DOPPLER" not in k
+            k.upper(): v["computed"]
+            for k, v in rds_secrets.items()
+            if "DOPPLER" not in k
         }
 
     return processed_secrets
+
 
 def validate_df_rows(df: pd.DataFrame, model_class) -> (pd.DataFrame, list):
     """Validates each row of a DataFrame against a Pydantic model.
@@ -368,7 +404,7 @@ def validate_df_rows(df: pd.DataFrame, model_class) -> (pd.DataFrame, list):
             error_info = {
                 "index": index,
                 "row_data": row.to_dict(),
-                "errors": [{"loc": "N/A", "msg": str(e), "type": "TypeError"}]
+                "errors": [{"loc": "N/A", "msg": str(e), "type": "TypeError"}],
             }
             error_details.append(error_info)
             # Optionally, print each error as it occurs
@@ -378,11 +414,14 @@ def validate_df_rows(df: pd.DataFrame, model_class) -> (pd.DataFrame, list):
         except ValidationError as e:
             # Aggregate detailed error information for each invalid row
             errors = e.errors()
-            detailed_errors = [{'loc': err['loc'][0], 'msg': err['msg'], 'type': err['type']} for err in errors]
+            detailed_errors = [
+                {"loc": err["loc"][0], "msg": err["msg"], "type": err["type"]}
+                for err in errors
+            ]
             error_info = {
                 "index": index,
                 "row_data": row.to_dict(),
-                "errors": detailed_errors
+                "errors": detailed_errors,
             }
             error_details.append(error_info)
             # Optionally, print each error as it occurs
@@ -398,7 +437,8 @@ def validate_df_rows(df: pd.DataFrame, model_class) -> (pd.DataFrame, list):
 def to_caps_case_class_name(name):
     # Example function to convert function name to CapsCase for class name
     # Adjust this according to your actual naming convention if necessary
-    return ''.join(word.capitalize() for word in name.split('_'))
+    return "".join(word.capitalize() for word in name.split("_"))
+
 
 def validate_function_output(model_class=None):
     def decorator(func):
@@ -407,29 +447,33 @@ def validate_function_output(model_class=None):
             result = func(*args, **kwargs)
             if model_class and isinstance(result, pd.DataFrame):
                 print()
-                print(f"Output from function: {func.__name__}")  
+                print(f"Output from function: {func.__name__}")
                 print()
 
                 # Display head if it's still a DataFrame
-                display(result.head())  
+                display(result.head())
 
                 try:
                     # Assuming model_class is a Pydantic model class
                     result = validate_df_rows(result, model_class)
-                    print(f"DataFrame validated successfully against {model_class.__name__}.")
+                    print(
+                        f"DataFrame validated successfully against {model_class.__name__}."
+                    )
                     print()
                 except ValidationError as e:
                     print(f"Validation errors:\n{e}")
                     print()
             else:
-                print(f"No model class provided or result is not a DataFrame. Skipping validation.")
+                print(
+                    f"No model class provided or result is not a DataFrame. Skipping validation."
+                )
                 print()
 
             return result
 
         return wrapper
-    return decorator
 
+    return decorator
 
 
 def validate_df(
@@ -488,7 +532,7 @@ def validate_df(
         validated_df[error_col_name] = [None] * len(validated_df)
         for idx, error in error_messages:
             validated_df.at[idx, error_col_name] = str(error)
-        
+
         display(validated_df)
     else:
         if error_messages:
@@ -620,18 +664,25 @@ def etree_to_dict(t):
             d[t.tag] = text
     return d
 
+
 def clean_text(data, remove_line_breaks=True, unidecoded=True):
     if isinstance(data, dict):
-        data = {key: clean_text(value, remove_line_breaks=remove_line_breaks) for key, value in data.items()}
+        data = {
+            key: clean_text(value, remove_line_breaks=remove_line_breaks)
+            for key, value in data.items()
+        }
     elif isinstance(data, list):
-        data = [clean_text(item, remove_line_breaks=remove_line_breaks) for item in data]
+        data = [
+            clean_text(item, remove_line_breaks=remove_line_breaks) for item in data
+        ]
     else:
         if remove_line_breaks is True:
-            data = re.sub(' +', ' ', ' '.join(data.splitlines()))
+            data = re.sub(" +", " ", " ".join(data.splitlines()))
         if unidecoded:
             data = unidecode(data)
-        data = re.sub('\n+', '\n', data).strip()
+        data = re.sub("\n+", "\n", data).strip()
     return data
+
 
 def parse_xml(xml_string):
     """Parse XML string into dictionary."""
@@ -659,8 +710,9 @@ def flatten_dict(dictionary, parent_key="", sep="_", snake_keys=True):
             items[new_key] = v
     return items
 
+
 def get_duckdb_connection(aws_profile=None):
-    con = duckdb.connect(database=':memory:', read_only=False)
+    con = duckdb.connect(database=":memory:", read_only=False)
     con.execute("INSTALL 'httpfs'")
     con.execute("INSTALL 'aws'")
     con.execute("LOAD 'httpfs'")
@@ -672,48 +724,59 @@ def get_duckdb_connection(aws_profile=None):
         con.execute("CALL load_aws_credentials()")
     return con
 
-def get_db_table(s3_path, table_name='db', aws_profile=None):
+
+def get_db_table(s3_path, table_name="db", aws_profile=None):
     try:
         con = get_duckdb_connection(aws_profile=aws_profile)
         # Directly create a DuckDB table from the Parquet file
-        con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM read_parquet('{s3_path}')")
+        con.execute(
+            f"CREATE TABLE {table_name} AS SELECT * FROM read_parquet('{s3_path}')"
+        )
         # Retrieve the DataFrame for use in Python, if needed
         return con
     except Exception as e:
         print(f"Error loading table from {s3_path}: {e}")
         return None
 
+
 def read_db_table(con):
-    df = con.table('db').df()
+    df = con.table("db").df()
     df = remove_index_column(df)
     return df
 
+
 def get_duckdb_schema(con):
     # Retrieve the list of tables
-    tables = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main'").fetchall()
+    tables = con.execute(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+    ).fetchall()
     schemas = []
-    
+
     # For each table, retrieve column details and format them
     for table in tables:
         table_name = table[0]
-        columns_info = con.execute(f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND table_schema = 'main'").fetchall()
-        columns_str = ',\n    '.join([f"{col[0]} {col[1]}" for col in columns_info])
+        columns_info = con.execute(
+            f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND table_schema = 'main'"
+        ).fetchall()
+        columns_str = ",\n    ".join([f"{col[0]} {col[1]}" for col in columns_info])
         table_schema = f"CREATE TABLE {table_name} (\n    {columns_str}\n);\n"
         schemas.append(table_schema)
-    
+
     # Combine all table schemas into one formatted string
-    full_schema = '\n'.join(schemas)
+    full_schema = "\n".join(schemas)
     return full_schema
 
+
 def remove_index_column(df):
-    if 'index' in df.columns:
-        if df['index'].to_list() == df.index.to_list():
-            df = df.drop(columns=['index'])
+    if "index" in df.columns:
+        if df["index"].to_list() == df.index.to_list():
+            df = df.drop(columns=["index"])
     return df
+
 
 def rollup_df(model_name, documents_path, metadata, cloud):
     con = get_db_table(documents_path)
-    df = con.table('db').df()
+    df = con.table("db").df()
     print(f"Original table shape: {df.shape}")
     mp = Path.cwd() / f"models/{model_name}.sql"
     df_rollup = con.execute(mp.read_text()).fetchdf()
@@ -729,17 +792,23 @@ def convert_to_money(line: str) -> float:
     Converts the first monetary string to a float, treating CR, DR, CF, numbers preceded by '-', and parentheses as negatives.
     """
     # Define pattern to capture monetary values including optional CR, DR, CF indicators or parentheses for negative values.
-    pattern = re.compile(r'-?\$?[\d,]+(?:\.\d+)?(?:CR|DR|CF)?|\(.*?\)')
+    pattern = re.compile(r"-?\$?[\d,]+(?:\.\d+)?(?:CR|DR|CF)?|\(.*?\)")
     line = f"{line}"
     match = pattern.search(line)
 
     if match:
         value = match.group()
         # Determine if the value is negative based on CR, DR, CF, parentheses, or preceding '-'.
-        is_negative = "CR" in value or "DR" in value or "CF" in value or "(" in value or value.startswith('-')
+        is_negative = (
+            "CR" in value
+            or "DR" in value
+            or "CF" in value
+            or "(" in value
+            or value.startswith("-")
+        )
 
         # Clean the string from any non-numeric characters for conversion.
-        num = float(re.sub(r'[^\d.]', '', value))
+        num = float(re.sub(r"[^\d.]", "", value))
 
         # Apply negative multiplier if any negative indicators are found.
         if is_negative:
@@ -751,15 +820,19 @@ def convert_to_money(line: str) -> float:
         return 0.0
 
 
-def get_date(text_or_datetime, month_first: bool = False, preferred_timezone: str = 'Australia/Sydney') -> str:
+def get_date(
+    text_or_datetime,
+    month_first: bool = False,
+    preferred_timezone: str = "Australia/Sydney",
+) -> str:
     """
     Extracts the date from a text string or datetime object, handling different date formats and timezone conversions.
-    
+
     Parameters:
     - text_or_datetime (str | datetime): Input text containing a date or a datetime object.
     - month_first (bool): Determines if the month comes before the day in ambiguous date formats. Defaults to True.
     - preferred_timezone (str): Preferred timezone for converting datetime objects. Defaults to 'UTC'.
-    
+
     Returns:
     - str: The date in ISO format (YYYY-MM-DD) if a valid date is found or provided.
     """
@@ -768,7 +841,7 @@ def get_date(text_or_datetime, month_first: bool = False, preferred_timezone: st
         if text_or_datetime.tzinfo:
             target_timezone = tz.gettz(preferred_timezone)
             text_or_datetime = text_or_datetime.astimezone(target_timezone)
-        return text_or_datetime.strftime('%Y-%m-%d')
+        return text_or_datetime.strftime("%Y-%m-%d")
     else:
         # Define a simple date pattern.
         date_pattern = re.compile(
@@ -776,17 +849,24 @@ def get_date(text_or_datetime, month_first: bool = False, preferred_timezone: st
         )
         # Find all matches based on the pattern.
         matches = date_pattern.findall(text_or_datetime)
-        
+
         if matches:
             # Directly use the month_first parameter with dateparser.
-            date = dateparser.parse(matches[0], settings={'DATE_ORDER': 'MDY' if month_first else 'DMY', 'PREFER_DATES_FROM': 'past', 'TIMEZONE': preferred_timezone})
+            date = dateparser.parse(
+                matches[0],
+                settings={
+                    "DATE_ORDER": "MDY" if month_first else "DMY",
+                    "PREFER_DATES_FROM": "past",
+                    "TIMEZONE": preferred_timezone,
+                },
+            )
 
             if date:
                 # Ensure the date is in the preferred timezone if it's timezone-aware.
                 if date.tzinfo:
                     target_timezone = tz.gettz(preferred_timezone)
                     date = date.astimezone(target_timezone)
-                return date.strftime('%Y-%m-%d')
+                return date.strftime("%Y-%m-%d")
             else:
                 return "No valid date found."
         else:
@@ -794,25 +874,40 @@ def get_date(text_or_datetime, month_first: bool = False, preferred_timezone: st
 
 
 def make_ngrams(text):
-    text = split_alpha_numeric(re.sub(r'[-_]', ' ', text.lower()))
-    ngram_sets = [{"".join(t) for i in range(n) for t in zip(*[text[j:] for j in range(i, i + n)])} for n in
-                  [3, 5, 7, 9, 11, 13]]
+    text = split_alpha_numeric(re.sub(r"[-_]", " ", text.lower()))
+    ngram_sets = [
+        {
+            "".join(t)
+            for i in range(n)
+            for t in zip(*[text[j:] for j in range(i, i + n)])
+        }
+        for n in [3, 5, 7, 9, 11, 13]
+    ]
     return list(
-        set.union(*ngram_sets, {text}, set(re.findall(r'[A-Za-z]+', text)), set(re.findall(r'[0-9\.\-,]{2,}', text))))
+        set.union(
+            *ngram_sets,
+            {text},
+            set(re.findall(r"[A-Za-z]+", text)),
+            set(re.findall(r"[0-9\.\-,]{2,}", text)),
+        )
+    )
 
 
 def split_alpha_numeric(s):
-    return ' '.join(re.split(r'([0-9]+)', s))
+    return " ".join(re.split(r"([0-9]+)", s))
 
 
 def get_bm25_scores(query, corpus, substring_promotion=20):
     if isinstance(corpus, pd.Series):
         corpus = corpus.tolist()
 
-    cleaned_query = split_alpha_numeric(re.sub(r'[^a-zA-Z0-9 ]+', '', query.lower()))
+    cleaned_query = split_alpha_numeric(re.sub(r"[^a-zA-Z0-9 ]+", "", query.lower()))
     tokenized_query = make_ngrams(query)
 
-    cleaned_corpus = [split_alpha_numeric(re.sub(r'[^a-zA-Z0-9 ]+', '', doc.lower())) for doc in corpus]
+    cleaned_corpus = [
+        split_alpha_numeric(re.sub(r"[^a-zA-Z0-9 ]+", "", doc.lower()))
+        for doc in corpus
+    ]
     tokenized_corpus = [make_ngrams(doc) for doc in corpus]
 
     bm25_obj = BM25L(tokenized_corpus) if tokenized_corpus else None
@@ -824,11 +919,17 @@ def get_bm25_scores(query, corpus, substring_promotion=20):
 
     # Identify substring matches
     if len(cleaned_query) > 6:
-        mask = [cleaned_query in doc or (doc and doc in cleaned_query) for doc in cleaned_corpus]
+        mask = [
+            cleaned_query in doc or (doc and doc in cleaned_query)
+            for doc in cleaned_corpus
+        ]
     else:
         mask = [False] * len(cleaned_corpus)
 
-    return [score + (substring_promotion if match else 0) for score, match in zip(scores, mask)]
+    return [
+        score + (substring_promotion if match else 0)
+        for score, match in zip(scores, mask)
+    ]
 
 
 # Code to work on that converts json to dataframes, creates pydantic models and the validates them:
@@ -861,9 +962,9 @@ def get_bm25_scores(query, corpus, substring_promotion=20):
 #             pydantic_type = str
 #             # Convert column to string if it contains complex data
 #             df[column] = df[column].apply(lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x)
-        
+
 #         fields[column] = (pydantic_type, ...)
-    
+
 #     return create_model('DynamicModel', **fields)
 
 # def validate_df(df: pd.DataFrame, model: BaseModel):
