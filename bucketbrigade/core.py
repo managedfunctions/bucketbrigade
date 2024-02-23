@@ -140,6 +140,7 @@ def setup_modal_image(stub_name, force_build=False):
                 "apt-get install -y git",
             ]
         )
+        .apt_install("git", "default-libmysqlclient-dev")
         .pip_install(
             "git+https://www.github.com/managedfunctions/bucketbrigade.git",
             # f"git+https://{github_token}@github.com/managedfunctions/pipebuilder.git",
@@ -147,7 +148,6 @@ def setup_modal_image(stub_name, force_build=False):
             "doppler-sdk",
             force_build=force_build,
         )
-        .apt_install("git", "default-libmysqlclient-dev")
     )
 
     stub = modal.Stub(
