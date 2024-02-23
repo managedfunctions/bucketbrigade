@@ -1,37 +1,33 @@
 import json
-import duckdb
-import modal
 import os
 import re
-import unidecode
-from yaml import load, Loader
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
 from typing import Any, Optional, Type
 from xml.etree import ElementTree as ET
 
-from datetime import datetime
-import dateparser
-from dateutil import tz
-
-
-from IPython.display import display
-
-from rank_bm25 import BM25L
-
-
-from bucketbrigade import aws as bbaws
-
 import arrow
+import dateparser
+import duckdb
+import modal
 import pandas as pd
+import unidecode
+from dateutil import tz
 from dopplersdk import DopplerSDK
+from IPython.display import display
+from magika import Magika
 from pydantic import (
     BaseModel,
     ValidationError,
     computed_field,
     parse_obj_as,
 )
+from rank_bm25 import BM25L
+from yaml import Loader, load
+
+m = Magika()
 
 
 def snake(input_str: str, ignore_dot: bool = False) -> str:
@@ -187,6 +183,10 @@ def setup_function(
                 docname = docpath.split("/")[-1]
                 print(i + 1, docname)
         docpath = docpaths_to_process[path_number]
+    formatted_secrets = {}
+    for k, v in secrets.items():
+        type = m.identify_bytes(v.encode("utf-8"))
+        print(k, v, type)
     return metadata, secrets, docpath
 
 
