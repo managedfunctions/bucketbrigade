@@ -344,7 +344,12 @@ def convert_to_dict(v):
 
 
 def get_secrets(
-    metadata, config="", provider="doppler", provider_key=None, use_lowercase=True
+    metadata,
+    config="",
+    provider="doppler",
+    provider_key=None,
+    use_lowercase=True,
+    flatten_dict=False,
 ):
     if provider == "doppler":
         sdk = set_doppler()
@@ -378,9 +383,21 @@ def get_secrets(
     rds_secrets = vars(results)["secrets"]
 
     # Process secrets: filter out keys containing "DOPPLER" and adjust case based on flag
-    if use_lowercase:
+    if use_lowercase and flatten_dict:
         processed_secrets = {
             k.lower(): convert_to_dict(v["computed"])
+            for k, v in rds_secrets.items()
+            if "DOPPLER" not in k
+        }
+    elif use_lowercase:
+        processed_secrets = {
+            k.lower(): v["computed"]
+            for k, v in rds_secrets.items()
+            if "DOPPLER" not in k
+        }
+    elif flatten_dict:
+        processed_secrets = {
+            k.upper(): convert_to_dict(v["computed"])
             for k, v in rds_secrets.items()
             if "DOPPLER" not in k
         }
