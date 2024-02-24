@@ -142,6 +142,7 @@ def setup_modal_image(stub_name, force_build=False):
             # f"git+https://{github_token}@github.com/managedfunctions/pipebuilder.git",
             "ipython",
             "doppler-sdk",
+            "magika",
             force_build=force_build,
         )
     )
@@ -331,6 +332,17 @@ def process_all_apis(df_to_api, functions, cloud):
         process_function.local(metadata)
 
 
+def convert_to_dict(v):
+    try:
+        v = load(v, Loader=Loader)
+    except:
+        try:
+            v = json.loads(v)
+        except:
+            pass
+    return v
+
+
 def get_secrets(
     metadata, config="", provider="doppler", provider_key=None, use_lowercase=True
 ):
@@ -368,13 +380,13 @@ def get_secrets(
     # Process secrets: filter out keys containing "DOPPLER" and adjust case based on flag
     if use_lowercase:
         processed_secrets = {
-            k.lower(): v["computed"]
+            k.lower(): convert_to_dict(v["computed"])
             for k, v in rds_secrets.items()
             if "DOPPLER" not in k
         }
     else:
         processed_secrets = {
-            k.upper(): v["computed"]
+            k.upper(): convert_to_dict(v["computed"])
             for k, v in rds_secrets.items()
             if "DOPPLER" not in k
         }
