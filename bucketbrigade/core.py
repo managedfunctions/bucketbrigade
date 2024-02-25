@@ -158,6 +158,7 @@ def setup_function(
     include_string: str = "",
     path_number=0,
     secrets_config="",
+    dimension="",
     secrets_provider="doppler",
     use_lowercase=False,
     cloud="",
@@ -166,6 +167,7 @@ def setup_function(
     secrets = get_secrets(
         metadata,
         config=secrets_config,
+        dimension=dimension,
         provider=secrets_provider,
         use_lowercase=use_lowercase,
     )
@@ -184,10 +186,6 @@ def setup_function(
                 docname = docpath.split("/")[-1]
                 print(i + 1, docname)
         docpath = docpaths_to_process[path_number]
-    formatted_secrets = {}
-    for k, v in secrets.items():
-        type = m.identify_bytes(v.encode("utf-8"))
-        print(k, v, type)
     return metadata, secrets, docpath
 
 
@@ -207,7 +205,9 @@ def set_doppler(provider_key=""):
     return doppler
 
 
-def get_functions(function, environment="prod", provider="", project_prefix="mfs-"):
+def get_functions(
+    function, environment="prod", dimension="", provider="", project_prefix="mfs-"
+):
     if not provider or provider == "doppler":
         sdk = set_doppler()
     results = sdk.projects.list(page=1, per_page=100)
@@ -343,13 +343,20 @@ def convert_to_dict(v):
     return v
 
 
+def update_values_by_dimension(data: dict, dimension: str) -> dict:
+    for key, value in data.items():
+        if isinstance(value, dict) and dimension in value:
+            data[key] = value[dimension]
+    return data
+
+
 def get_secrets(
     metadata,
     config="",
+    dimension="",
     provider="doppler",
     provider_key=None,
     use_lowercase=True,
-    flatten_dict=False,
 ):
     if provider == "doppler":
         sdk = set_doppler()
@@ -383,21 +390,9 @@ def get_secrets(
     rds_secrets = vars(results)["secrets"]
 
     # Process secrets: filter out keys containing "DOPPLER" and adjust case based on flag
-    if use_lowercase and flatten_dict:
+    if use_lowercase:
         processed_secrets = {
             k.lower(): convert_to_dict(v["computed"])
-            for k, v in rds_secrets.items()
-            if "DOPPLER" not in k
-        }
-    elif use_lowercase:
-        processed_secrets = {
-            k.lower(): v["computed"]
-            for k, v in rds_secrets.items()
-            if "DOPPLER" not in k
-        }
-    elif flatten_dict:
-        processed_secrets = {
-            k.upper(): convert_to_dict(v["computed"])
             for k, v in rds_secrets.items()
             if "DOPPLER" not in k
         }
@@ -407,7 +402,8 @@ def get_secrets(
             for k, v in rds_secrets.items()
             if "DOPPLER" not in k
         }
-
+    if dimension:
+        processed_secrets = update_values_by_dimension(processed_secrets, dimension)
     return processed_secrets
 
 
