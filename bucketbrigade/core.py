@@ -61,19 +61,19 @@ class Metadata(BaseModel):
 
     @computed_field
     def function(self) -> str:
-        return f"{self.direction}_{self.system}_{self.folder}"
+        return f"{self.direction}_{self.system}_{self.folder}".replace(" ", "")
 
     @computed_field
     def bucket_path(self) -> str:
-        return f"s3://{self.bucket}"
+        return f"s3://{self.bucket}".replace(" ", "")
 
     @computed_field
     def system_path(self) -> str:
-        return f"s3://{self.bucket}/{self.direction}_{self.system}"
+        return f"s3://{self.bucket}/{self.direction}_{self.system}".replace(" ", "")
 
     @computed_field
     def folder_path(self) -> str:
-        return f"{self.system_path}/{self.folder}/{self.environment}"
+        return f"{self.system_path}/{self.folder}/{self.environment}".replace(" ", "")
 
     @computed_field
     def input_path(self) -> str:

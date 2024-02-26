@@ -10,6 +10,8 @@ from textractor.data.constants import TextractFeatures
 from textractor.entities.document import Document
 
 import s3fs
+from urllib.parse import quote_plus
+from urllib.parse import unquote_plus
 
 import arrow
 import boto3
@@ -34,6 +36,26 @@ def bucket_key_from_docpath(docpath):
     bucket_name = full_path.split("/")[0]
     key = "/".join(full_path.split("/")[1:])
     return bucket_name, key
+
+
+def url_encode_s3_path(s3_path: str) -> str:
+    # Remove the s3:// prefix as it's not part of the path we want to encode
+    path_without_scheme = s3_path.split("//")[-1]
+
+    # Encode the path
+    encoded_path = quote_plus(path_without_scheme)
+
+    # Return the encoded path
+    return encoded_path
+
+
+def url_decode(encoded_url: str) -> str:
+    # Decode the URL-encoded string
+    decoded_url = unquote_plus(encoded_url)
+
+    # Return the decoded URL
+    full_s3_path = f"s3://{decoded_url}"
+    return full_s3_path
 
 
 def list_docs(parent_folder, start=None, end=None, include_string=""):
