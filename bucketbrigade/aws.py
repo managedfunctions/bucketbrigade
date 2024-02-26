@@ -49,7 +49,7 @@ def url_encode_s3_path(s3_path: str) -> str:
     return encoded_path
 
 
-def url_decode(encoded_url: str) -> str:
+def url_decode_s3_path(encoded_url: str) -> str:
     # Decode the URL-encoded string
     decoded_url = unquote_plus(encoded_url)
 
