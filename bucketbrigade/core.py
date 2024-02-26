@@ -139,7 +139,6 @@ def setup_modal_image(stub_name, force_build=False):
         .apt_install("git", "default-libmysqlclient-dev")
         .pip_install(
             "git+https://www.github.com/managedfunctions/bucketbrigade.git",
-            # f"git+https://{github_token}@github.com/managedfunctions/pipebuilder.git",
             "ipython",
             "doppler-sdk",
             "magika",
@@ -179,10 +178,14 @@ def setup_function(
             print("\nNo docpaths to process.\n")
             return metadata, secrets, None
         elif len(docpaths_to_process) > 0:
-            print(
-                f"\{len(docpaths_to_process)} docpaths to process. Here are the first five:\n"
-            )
-            for i, docpath in enumerate(docpaths_to_process[:5]):
+            docs_to_show = min(5, len(docpaths_to_process))
+            if len(docpaths_to_process) > 1:
+                print(
+                    f"\n{len(docpaths_to_process)} docpaths to process. Here are the first {docs_to_show}:\n"
+                )
+            else:
+                print(f"\n{len(docpaths_to_process)} docpath to process.\n")
+            for i, docpath in enumerate(docpaths_to_process[:docs_to_show]):
                 docname = docpath.split("/")[-1]
                 print(i + 1, docname)
         docpath = docpaths_to_process[path_number]
