@@ -20,6 +20,12 @@ import numpy as np
 import pandas as pd
 from botocore.exceptions import ClientError
 
+import ftplib
+import pysftp
+from pydantic import BaseModel, computed_field
+from typing import Optional, Dict, Tuple, Union, Any, List
+
+
 from bucketbrigade import core as bbcore
 
 s3 = s3fs.S3FileSystem(anon=False, default_cache_type="none")
@@ -473,7 +479,6 @@ def get_textracted_document(
         print("Reading existing textracted document")
         document = read_doc(textracted_path)
         return document
-
     analyse = False
     if "table" in output:
         features.append(TextractFeatures.TABLES)
@@ -500,3 +505,120 @@ def get_textracted_document(
     save_doc(textracted_path, document.response)
     print(f"Textracted document saved to {textracted_path}")
     return document.response
+
+
+# class SFTPConfig(BaseModel):
+#     url: str
+#     username: str
+#     password: str
+#     port: int
+#     from_customer_folder: str
+
+
+# def authenticate_sftp(sftp_config: SFTPConfig):
+#     cnopts = pysftp.CnOpts()
+#     cnopts.hostkeys = None
+#     return pysftp.Connection(
+#         host=sftp_config["url"],
+#         username=sftp_config["username"],
+#         password=sftp_config["password"],
+#         port=sftp_config["port"],
+#         cnopts=cnopts,
+#     )
+
+
+# def fetch_files_from_sftp(sftp) -> List[str]:
+#     return [file for file in sftp.listdir_attr() if sftp.isfile(file.filename)]
+
+
+# def save_file_to_s3(sftp, file_name: str, local_path: str, s3_path: str, encode=True):
+#     sftp.get(file_name, local_path)
+#     doc = Path(local_path).read_text()
+#     put_doc(doc, s3_path, content_type="text/plain", encode=encode)
+
+
+# def sftp_to_s3(
+#     sftp_config,
+#     metadata,
+#     dated: bool = True,
+#     encode=True,
+#     delete=True,
+#     archive_folder="",
+# ):
+#     doc_date = ""
+#     if dated:
+#         doc_date = arrow.now(metadata.timezone).format("YYYYMMDDHHmm")
+#         doc_date = f"{doc_date}_"
+#     sftp = authenticate_sftp(sftp_config)
+#     sftp.cwd(sftp_config["from_customer_folder"])
+#     files = fetch_files_from_sftp(sftp)
+#     for file in files[:]:
+#         print()
+#         print(pbcore.function_location)
+#         print(file.filename)
+#         local_path = f"{pbcore.temp_path}/{doc_date}{file.filename}"
+#         s3_path = f"{metadata.input_path}/{doc_date}{pbcore.snake(file.filename)}"
+
+#         save_file_to_s3(sftp, file.filename, local_path, s3_path, encode=encode)
+#         print(f"Saved to {s3_path}")
+#         if delete and doc_exists(s3_path):
+#             if archive_folder:
+#                 archive_path = f"../{archive_folder}/{file.filename}"
+#                 try:
+#                     sftp.rename(file.filename, archive_path)
+#                     print(f"Moved to {archive_path}")
+#                 except:
+#                     sftp.rename(file.filename, f"{archive_path}a")
+#                     print(f"Moved to {archive_path}")
+#             else:
+#                 sftp.remove(file.filename)
+#     sftp.close()
+
+
+# class FTPConfig(BaseModel):
+#     url: str
+#     username: str
+#     password: str
+#     port: int
+#     from_customer_folder: str
+#     archive_folder: str
+
+
+# def authenticate_ftp(ftp_config: FTPConfig):
+#     ftp = ftplib.FTP()
+#     ftp.connect(ftp_config["url"], ftp_config["port"])
+#     ftp.login(ftp_config["username"], ftp_config["password"])
+#     return ftp
+
+
+# def fetch_files_from_ftp(ftp, folder: str, skip_list) -> List[str]:
+#     ftp.cwd(folder)
+#     return [filename for filename in ftp.nlst() if filename not in skip_list]
+
+
+# def save_file_to_s3_via_ftp(ftp, filename: str, local_path: str, s3_path: str):
+#     with open(local_path, "wb") as f:
+#         ftp.retrbinary(f"RETR {filename}", f.write)
+#     upload_doc(local_path, s3_path)
+
+
+# def ftp_to_s3(ftp_config: FTPConfig, metadata, skip_list=[], dated: bool = True):
+#     doc_date = arrow.now(metadata.timezone).format("YYYYMMDDHHmm")
+#     ftp = authenticate_ftp(ftp_config)
+
+#     filenames = fetch_files_from_ftp(
+#         ftp, ftp_config["from_customer_folder"], skip_list=skip_list
+#     )
+#     print(filenames)
+#     for filename in filenames:
+#         print()
+#         print(filename)
+#         local_path = f"{bbcore.temp_path}/{doc_date}_{filename}"
+#         s3_path = f"{metadata.input_path}/{doc_date}_{filename}"
+
+#         save_file_to_s3_via_ftp(ftp, filename, local_path, s3_path)
+
+#         if doc_exists(s3_path):
+#             ftp.delete(filename)
+
+#     ftp.close()

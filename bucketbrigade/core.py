@@ -324,6 +324,7 @@ def process_all_apis(df_to_api, functions, cloud):
     for k, row in df_to_api.iterrows():
         process_function = getattr(functions, row.variants)
         print(process_function)
+        print(row)
         metadata = Metadata(
             bucket=row.project,
             direction=row.direction,
