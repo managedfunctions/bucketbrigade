@@ -13,7 +13,7 @@ import dateparser
 import duckdb
 import modal
 import pandas as pd
-import unidecode
+from unidecode import unidecode
 from dateutil import tz
 from dopplersdk import DopplerSDK
 from IPython.display import display
