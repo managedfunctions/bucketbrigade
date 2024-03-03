@@ -32,6 +32,7 @@ openpyxl = "^3.1.2"
 instructor = ">=0.6.1"
 markdown = "^3.5.2"
 pysftp = "^0.2.9"
+mail-parser = "^3.15.0"
 
 [tool.poetry.group.dev.dependencies]
 notebook = ">=7"

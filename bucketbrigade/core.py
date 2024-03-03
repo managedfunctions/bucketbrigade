@@ -123,6 +123,46 @@ def get_metadata_from_docpath(docpath):
     )
 
 
+def get_metadata_from_variant(bucket, variant, environment="prod"):
+    variant_parts = variant.split("/")
+    return Metadata(
+        bucket=bucket,
+        direction=variant_parts[1].split("_")[0],
+        system=variant_parts[1].rsplit("_", 1)[-1],
+        folder=variant_parts[2],
+        environment=environment,
+    )
+
+
+def setup_modal_uv_image(stub_name):
+    sdk = set_doppler()
+    github_token = sdk.secrets.get(project="github", config="prod", name="GITHUB_TOKEN")
+    github_token = vars(github_token)["value"]["computed"]
+
+    image = (
+        modal.Image.debian_slim()
+        .run_commands(
+            [
+                "apt-get update",
+                "apt-get install -y git",
+            ]
+        )
+        .apt_install("git", "default-libmysqlclient-dev")
+        .pip_install("uv")
+        .run_commands(
+            [
+                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
+                "force_build=True",
+            ]
+        )
+    )
+
+    stub = modal.Stub(
+        name=stub_name,
+    )
+    return image, stub
+
+
 def setup_modal_image(stub_name, force_build=False):
     sdk = set_doppler()
     github_token = sdk.secrets.get(project="github", config="prod", name="GITHUB_TOKEN")
@@ -152,7 +192,24 @@ def setup_modal_image(stub_name, force_build=False):
     return image, stub
 
 
-def setup_function(
+def setup_function_from_metadata(
+    metadata: Metadata,
+    secrets_config="",
+    dimension="",
+    secrets_provider="doppler",
+    use_lowercase=False,
+):
+    secrets = get_secrets(
+        metadata,
+        config=secrets_config,
+        dimension=dimension,
+        provider=secrets_provider,
+        use_lowercase=use_lowercase,
+    )
+    return metadata, secrets
+
+
+def setup_function_from_docpath(
     docpath: str = "",
     include_string: str = "",
     path_number=0,

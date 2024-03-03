@@ -10,6 +10,10 @@ Everything gets more complicated and more expensive once you start using the clo
 
 This library is aimed at making it easy for developers to store their data as objects in cloud storage but use other tools for processing the data - either self-hosted or hosted in the cloud.
 
+The key functions are:
+
+
+
 The key function is _get_unprocessed_docs_ which lists unprocessed documents in a cloud storage bucket and sends them to a queue for serverless functions to process. The initial target for the bucketbrigade is modal.com but the intent is to accommodate any serverless function provider.
 
 Key function:
