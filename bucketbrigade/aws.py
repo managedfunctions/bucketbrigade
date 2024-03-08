@@ -1,30 +1,26 @@
 import base64
 import csv
+import ftplib
 import io
 import json
+import mimetypes
 from datetime import date, datetime, timezone
-import re
+from typing import List
+from urllib.parse import quote_plus, unquote_plus
 from xml.etree import ElementTree as ET
-from textractor import Textractor
-from textractor.data.constants import TextractFeatures
-from textractor.entities.document import Document
-
-import s3fs
-from urllib.parse import quote_plus
-from urllib.parse import unquote_plus
 
 import arrow
 import boto3
 import dateutil
 import numpy as np
 import pandas as pd
-from botocore.exceptions import ClientError
-
-import ftplib
+from pathlib import Path
 import pysftp
-from pydantic import BaseModel, computed_field
-from typing import Optional, Dict, Tuple, Union, Any, List
-
+import s3fs
+from botocore.exceptions import ClientError
+from pydantic import BaseModel
+from textractor import Textractor
+from textractor.data.constants import TextractFeatures
 
 from bucketbrigade import core as bbcore
 
@@ -425,8 +421,12 @@ def delete_doc(path):
 
 
 def mark_completed(current_path, doc, delete_original=True):
-    new_path = str(current_path).replace("/input_folder", "/output_folder")
-    archive_path = str(current_path).replace("/input_folder", "/archive_folder")
+    if "review_folder" in current_path:
+        new_path = str(current_path).replace("/review_folder", "/output_folder")
+        archive_path = str(current_path).replace("/review_folder", "/archive_folder")
+    else:
+        new_path = str(current_path).replace("/input_folder", "/output_folder")
+        archive_path = str(current_path).replace("/input_folder", "/archive_folder")
     print(current_path)
     print(new_path)
     if new_path != current_path:
@@ -507,118 +507,168 @@ def get_textracted_document(
     return document.response
 
 
-# class SFTPConfig(BaseModel):
-#     url: str
-#     username: str
-#     password: str
-#     port: int
-#     from_customer_folder: str
+class SFTPConfig(BaseModel):
+    url: str
+    username: str
+    password: str
+    port: int
+    from_customer_folder: str
 
 
-# def authenticate_sftp(sftp_config: SFTPConfig):
-#     cnopts = pysftp.CnOpts()
-#     cnopts.hostkeys = None
-#     return pysftp.Connection(
-#         host=sftp_config["url"],
-#         username=sftp_config["username"],
-#         password=sftp_config["password"],
-#         port=sftp_config["port"],
-#         cnopts=cnopts,
-#     )
+def authenticate_sftp(sftp_config: SFTPConfig):
+    cnopts = pysftp.CnOpts()
+    cnopts.hostkeys = None
+    return pysftp.Connection(
+        host=sftp_config["url"],
+        username=sftp_config["username"],
+        password=sftp_config["password"],
+        port=sftp_config["port"],
+        cnopts=cnopts,
+    )
 
 
-# def fetch_files_from_sftp(sftp) -> List[str]:
-#     return [file for file in sftp.listdir_attr() if sftp.isfile(file.filename)]
+def fetch_files_from_sftp(sftp) -> List[str]:
+    return [file for file in sftp.listdir_attr() if sftp.isfile(file.filename)]
 
 
-# def save_file_to_s3(sftp, file_name: str, local_path: str, s3_path: str, encode=True):
-#     sftp.get(file_name, local_path)
-#     doc = Path(local_path).read_text()
-#     put_doc(doc, s3_path, content_type="text/plain", encode=encode)
+def save_file_to_s3(sftp, file_name: str, local_path: str, s3_path: str, encode=True):
+    sftp.get(file_name, local_path)
+    doc = Path(local_path).read_text()
+    put_doc(doc, s3_path, content_type="text/plain", encode=encode)
 
 
-# def sftp_to_s3(
-#     sftp_config,
-#     metadata,
-#     dated: bool = True,
-#     encode=True,
-#     delete=True,
-#     archive_folder="",
-# ):
-#     doc_date = ""
-#     if dated:
-#         doc_date = arrow.now(metadata.timezone).format("YYYYMMDDHHmm")
-#         doc_date = f"{doc_date}_"
-#     sftp = authenticate_sftp(sftp_config)
-#     sftp.cwd(sftp_config["from_customer_folder"])
-#     files = fetch_files_from_sftp(sftp)
-#     for file in files[:]:
-#         print()
-#         print(pbcore.function_location)
-#         print(file.filename)
-#         local_path = f"{pbcore.temp_path}/{doc_date}{file.filename}"
-#         s3_path = f"{metadata.input_path}/{doc_date}{pbcore.snake(file.filename)}"
+def sftp_to_s3(
+    sftp_config,
+    metadata,
+    dated: bool = True,
+    encode=True,
+    delete=True,
+    archive_folder="",
+):
+    doc_date = ""
+    if dated:
+        doc_date = arrow.now(metadata.timezone).format("YYYYMMDDHHmm")
+        doc_date = f"{doc_date}_"
+    sftp = authenticate_sftp(sftp_config)
+    sftp.cwd(sftp_config["from_customer_folder"])
+    files = fetch_files_from_sftp(sftp)
+    for file in files[:1]:
+        print()
+        print(bbcore.function_location)
+        print(file.filename)
+        local_path = f"{bbcore.temp_path}/{doc_date}{file.filename}"
+        s3_path = f"{metadata.input_path}/{doc_date}{bbcore.snake(file.filename)}"
 
-#         save_file_to_s3(sftp, file.filename, local_path, s3_path, encode=encode)
-#         print(f"Saved to {s3_path}")
-#         if delete and doc_exists(s3_path):
-#             if archive_folder:
-#                 archive_path = f"../{archive_folder}/{file.filename}"
-#                 try:
-#                     sftp.rename(file.filename, archive_path)
-#                     print(f"Moved to {archive_path}")
-#                 except:
-#                     sftp.rename(file.filename, f"{archive_path}a")
-#                     print(f"Moved to {archive_path}")
-#             else:
-#                 sftp.remove(file.filename)
-#     sftp.close()
-
-
-# class FTPConfig(BaseModel):
-#     url: str
-#     username: str
-#     password: str
-#     port: int
-#     from_customer_folder: str
-#     archive_folder: str
+        save_file_to_s3(sftp, file.filename, local_path, s3_path, encode=encode)
+        print(f"Saved to {s3_path}")
+        if delete and doc_exists(s3_path):
+            if archive_folder:
+                archive_path = f"../{archive_folder}/{file.filename}"
+                try:
+                    sftp.rename(file.filename, archive_path)
+                    print(f"Moved to {archive_path}")
+                except:
+                    sftp.rename(file.filename, f"{archive_path}a")
+                    print(f"Moved to {archive_path}")
+            else:
+                sftp.remove(file.filename)
+    sftp.close()
 
 
-# def authenticate_ftp(ftp_config: FTPConfig):
-#     ftp = ftplib.FTP()
-#     ftp.connect(ftp_config["url"], ftp_config["port"])
-#     ftp.login(ftp_config["username"], ftp_config["password"])
-#     return ftp
+class FTPConfig(BaseModel):
+    url: str
+    username: str
+    password: str
+    port: int
+    from_customer_folder: str
+    archive_folder: str
 
 
-# def fetch_files_from_ftp(ftp, folder: str, skip_list) -> List[str]:
-#     ftp.cwd(folder)
-#     return [filename for filename in ftp.nlst() if filename not in skip_list]
+def authenticate_ftp(ftp_config: FTPConfig):
+    ftp = ftplib.FTP()
+    ftp.connect(ftp_config["url"], ftp_config["port"])
+    ftp.login(ftp_config["username"], ftp_config["password"])
+    return ftp
 
 
-# def save_file_to_s3_via_ftp(ftp, filename: str, local_path: str, s3_path: str):
-#     with open(local_path, "wb") as f:
-#         ftp.retrbinary(f"RETR {filename}", f.write)
-#     upload_doc(local_path, s3_path)
+def fetch_files_from_ftp(ftp, folder: str, skip_list) -> List[str]:
+    ftp.cwd(folder)
+    return [filename for filename in ftp.nlst() if filename not in skip_list]
 
 
-# def ftp_to_s3(ftp_config: FTPConfig, metadata, skip_list=[], dated: bool = True):
-#     doc_date = arrow.now(metadata.timezone).format("YYYYMMDDHHmm")
-#     ftp = authenticate_ftp(ftp_config)
+def save_file_to_s3_via_ftp(ftp, filename: str, local_path: str, s3_path: str):
+    with open(local_path, "wb") as f:
+        ftp.retrbinary(f"RETR {filename}", f.write)
+    upload_doc(local_path, s3_path)
 
-#     filenames = fetch_files_from_ftp(
-#         ftp, ftp_config["from_customer_folder"], skip_list=skip_list
-#     )
-#     print(filenames)
-#     for filename in filenames:
-#         print()
-#         print(filename)
-#         local_path = f"{bbcore.temp_path}/{doc_date}_{filename}"
-#         s3_path = f"{metadata.input_path}/{doc_date}_{filename}"
 
-#         save_file_to_s3_via_ftp(ftp, filename, local_path, s3_path)
+def ftp_to_s3(ftp_config: FTPConfig, metadata, skip_list=[], dated: bool = True):
+    doc_date = arrow.now(metadata.timezone).format("YYYYMMDDHHmm")
+    ftp = authenticate_ftp(ftp_config)
 
-#         if doc_exists(s3_path):
-#             ftp.delete(filename)
+    filenames = fetch_files_from_ftp(
+        ftp, ftp_config["from_customer_folder"], skip_list=skip_list
+    )
+    print(filenames)
+    for filename in filenames:
+        print()
+        print(filename)
+        local_path = f"{bbcore.temp_path}/{doc_date}_{filename}"
+        s3_path = f"{metadata.input_path}/{doc_date}_{filename}"
 
-#     ftp.close()
+        save_file_to_s3_via_ftp(ftp, filename, local_path, s3_path)
+
+        if doc_exists(s3_path):
+            ftp.delete(filename)
+
+    ftp.close()
+
+
+def get_fs():
+    if not hasattr(get_fs, "fs"):
+        get_fs.fs = s3fs.S3FileSystem()
+    return get_fs.fs
+
+
+def upload_doc(local_path, docpath):
+    # Create an S3 client
+    s3 = boto3.client("s3")
+    bucket_name, prefix = bucket_key_from_docpath(docpath)
+    # Delete the object
+    s3.upload_file(local_path, Bucket=bucket_name, Key=prefix)
+    print(f"Object {prefix} was successfully uploaded to {docpath}.")
+
+
+def put_doc(
+    doc, docpath, content_type="", content_disposition="attachment", encode=True
+):
+    if encode:
+        try:
+            doc = base64.b64decode(doc)
+        except Exception:
+            try:
+                doc = doc.encode("utf-8")
+            except Exception as e:
+                print("Not base64 encoded or utf-8 encoded")
+                print(e)
+                pass
+
+    if not content_type:
+        guessed_type, _ = mimetypes.guess_type(docpath[1])
+        content_type = guessed_type or "application/octet-stream"
+
+    metadata = {"ContentType": content_type, "ContentDisposition": content_disposition}
+    fs = get_fs()
+    if encode:
+        with fs.open(docpath, "wb", **metadata) as f:
+            f.write(doc)
+    else:
+        with fs.open(docpath, "w", **metadata) as f:
+            f.write(doc)
+
+    info = fs.info(docpath)
+    object_size = info.get("size", 0)
+    if not object_size:
+        raise Exception(f"Failed to save doc to {docpath}")
+    else:
+        print(f"Saved doc to {docpath}")

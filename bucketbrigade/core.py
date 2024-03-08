@@ -29,6 +29,14 @@ from yaml import Loader, load
 
 m = Magika()
 
+if modal.is_local():
+    temp_path = Path("./tmp")
+    temp_path.mkdir(parents=True, exist_ok=True)
+    function_location = "local"
+else:
+    temp_path = Path("/root/tmp")
+    function_location = "remote"
+
 
 def snake(input_str: str, ignore_dot: bool = False) -> str:
     if ignore_dot:
@@ -52,12 +60,18 @@ class Metadata(BaseModel):
     bucket: str
     direction: str
     system: str
-    folder: str
+    object: str
+    variant: int
+    dimension: Optional[str] = ""
     environment: str = "prod"
     timezone: str = "Australia/Sydney"
 
     class Config:
         arbitrary_types_allowed = True
+
+    @computed_field
+    def folder(self) -> str:
+        return f"{self.object}_variant_{self.variant}".replace(" ", "")
 
     @computed_field
     def function(self) -> str:
@@ -112,26 +126,28 @@ class Metadata(BaseModel):
         return arrow.now(self.timezone).format("YYYYMMDDHHmmss")
 
 
-def get_metadata_from_docpath(docpath):
+def get_metadata_from_docpath(docpath, dimension=""):
     docpath_parts = docpath.split("//")[-1].split("/")
     return Metadata(
         bucket=docpath_parts[0],
         direction=docpath_parts[1].split("_")[0],
         system=docpath_parts[1].rsplit("_", 1)[-1],
-        folder=docpath_parts[2],
+        object=docpath_parts[2].split("_variant_")[0],
+        variant=docpath_parts[2].split("_variant_")[-1],
+        dimension=dimension,
         environment=docpath_parts[3],
     )
 
 
-def get_metadata_from_variant(bucket, variant, environment="prod"):
-    variant_parts = variant.split("/")
-    return Metadata(
-        bucket=bucket,
-        direction=variant_parts[1].split("_")[0],
-        system=variant_parts[1].rsplit("_", 1)[-1],
-        folder=variant_parts[2],
-        environment=environment,
-    )
+# def get_metadata_from_variant(bucket, variant, environment="prod"):
+#     variant_parts = variant.split("/")
+#     return Metadata(
+#         bucket=bucket,
+#         direction=variant_parts[1].split("_")[0],
+#         system=variant_parts[1].rsplit("_", 1)[-1],
+#         folder=variant_parts[2],
+#         environment=environment,
+#     )
 
 
 def setup_modal_uv_image(stub_name):
@@ -151,7 +167,7 @@ def setup_modal_uv_image(stub_name):
         .pip_install("uv")
         .run_commands(
             [
-                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
+                """uv pip install --compile "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
                 "force_build=True",
             ]
         )
@@ -358,9 +374,16 @@ def setup_project_db(cloud, provider="", project_prefix="mfs-"):
     return df
 
 
-def get_functions_to_process(system, environment, cloud):
+def get_functions_to_process_by_system(system, environment, cloud):
     df = pd.read_parquet("s3://mfs-admin/configs/project_db.parquet")
     df = df[(df.system == system) & (df.environment == environment)]
+    df = df[df.variants != ""]
+    return df[df.function_type == "to_map"], df[df.function_type == "to_api"]
+
+
+def get_functions_to_process_by_customer(customer, environment, cloud):
+    df = pd.read_parquet("s3://mfs-admin/configs/project_db.parquet")
+    df = df[(df.project == customer) & (df.environment == environment)]
     df = df[df.variants != ""]
     return df[df.function_type == "to_map"], df[df.function_type == "to_api"]
 
@@ -414,7 +437,6 @@ def update_values_by_dimension(data: dict, dimension: str) -> dict:
 def get_secrets(
     metadata,
     config="",
-    dimension="",
     provider="doppler",
     provider_key=None,
     use_lowercase=True,
@@ -463,8 +485,10 @@ def get_secrets(
             for k, v in rds_secrets.items()
             if "DOPPLER" not in k
         }
-    if dimension:
-        processed_secrets = update_values_by_dimension(processed_secrets, dimension)
+    if metadata.dimension:
+        processed_secrets = update_values_by_dimension(
+            processed_secrets, metadata.dimension
+        )
     return processed_secrets
 
 
@@ -551,7 +575,7 @@ def validate_function_output(model_class=None):
                     print()
             else:
                 print(
-                    f"No model class provided or result is not a DataFrame. Skipping validation."
+                    "No model class provided or result is not a DataFrame. Skipping validation."
                 )
                 print()
 
@@ -620,9 +644,9 @@ def validate_df(
             validated_df.at[idx, error_col_name] = str(error)
 
         display(validated_df)
-    else:
-        if error_messages:
-            raise ValueError(f"Validation errors: {error_messages}")
+    # else:
+    #     if error_messages:
+    #         raise ValueError(f"Validation errors: {error_messages}")
 
     return validated_df
 
@@ -1016,6 +1040,31 @@ def get_bm25_scores(query, corpus, substring_promotion=20):
         score + (substring_promotion if match else 0)
         for score, match in zip(scores, mask)
     ]
+
+
+def group_and_sum(df, groupby_col, sum_col):
+    """
+    Groups the dataframe by the specified column and sums another specified column,
+    while retaining all other columns.
+
+    :param df: DataFrame to process.
+    :param groupby_col: Column name to group by.
+    :param sum_col: Column name to sum.
+    :return: Grouped and summed DataFrame.
+    """
+    # Group by the specified column and sum the specified column
+    grouped_sum = df.groupby(groupby_col, as_index=False)[sum_col].sum()
+
+    # Dropping the sum_col from the original dataframe to avoid duplication
+    df_dropped = df.drop(columns=[sum_col])
+
+    # Removing duplicates based on the groupby_col
+    df_dropped = df_dropped.drop_duplicates(subset=groupby_col)
+
+    # Merging the grouped_sum dataframe with the df_dropped dataframe
+    result_df = pd.merge(grouped_sum, df_dropped, on=groupby_col)
+
+    return result_df
 
 
 # Code to work on that converts json to dataframes, creates pydantic models and the validates them:
