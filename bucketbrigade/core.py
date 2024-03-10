@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Optional, Type
 from xml.etree import ElementTree as ET
 
+import tempfile
+
 import arrow
 import dateparser
 import duckdb
@@ -168,7 +170,7 @@ def setup_modal_uv_image(stub_name):
         .pip_install("uv")
         .run_commands(
             [
-                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
+                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" pygsheets --system""",
                 "force_build=True",
             ]
         )
@@ -414,6 +416,112 @@ def process_all_apis(df_to_api, functions, cloud):
         process_function.local(metadata)
 
 
+def determine_modal_attributes(row, pipeline):
+    # Initialize default values for direction, variant, and operation
+    system, direction, variant, operation, include = None, None, None, None, 0
+
+    # Determine the source column based on the pipeline prefix
+    source_column = None
+    if row["outbound_from_system"].startswith(pipeline):
+        source_column = "outbound_from_system"
+        direction = "from"
+        system = row["outbound_from_system"].split(".")[0]
+        include = 1
+    elif row["inbound_to_system"].startswith(pipeline):
+        source_column = "inbound_to_system"
+        direction = "from"
+        system = row["outbound_from_system"].split(".")[0]
+        include = 1
+    elif row["refined_in_system"].startswith(pipeline):
+        source_column = "refined_in_system"
+        direction = "in"
+        system = row["refined_in_system"].split(".")[0]
+        include = 1
+    # If a source column is identified, extract variant and operation
+    if source_column:
+        parts = row[source_column].split(".")
+        if len(parts) >= 2:
+            operation = parts[-2]
+            variant = parts[-1]
+        elif len(parts) == 1:
+            variant = parts[0]
+
+    return pd.Series([system, direction, variant, operation, include])
+
+
+def get_modal_function(metadata, outbound, inbound, refine):
+    if hasattr(outbound, metadata.function):
+        process_function = getattr(outbound, metadata.function)
+    elif hasattr(inbound, metadata.function):
+        process_function = getattr(inbound, metadata.function)
+    elif hasattr(refine, metadata.function):
+        process_function = getattr(refine, metadata.function)
+    else:
+        process_function = modal.Function.lookup(metadata.system, metadata.function)
+    return process_function
+
+
+def process_functions(df, outbound, inbound, refine, cloud, show_details=False):
+    if df.empty:
+        raise Exception("No data to process")
+    for k, row in df.iloc[:].iterrows():
+        print()
+        metadata = Metadata(
+            bucket=row.customer,
+            direction=row.direction,
+            system=row.system,
+            object=row.object,
+            variant=row.variant,
+            prod=row.environment,
+        )
+        if show_details:
+            display(metadata.model_dump())
+        process_function = get_modal_function(metadata, outbound, inbound, refine)
+        if row.operation == "d":
+            docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
+            print(metadata.input_path)
+            print(f"Number of docpaths to process: {len(docpaths_to_process)}")
+            print()
+            if modal.is_local():
+                docpaths_to_process = docpaths_to_process[:1]
+            for docpath in docpaths_to_process:
+                if modal.is_local():
+                    process_function.local(docpath)
+                else:
+                    list(
+                        process_function.map(
+                            docpaths_to_process, return_exceptions=True
+                        )
+                    )
+        else:
+            print(metadata.bucket, metadata.function)
+            print()
+            if modal.is_local():
+                process_function.local(metadata)
+            else:
+                process_function.remote(metadata)
+
+
+def _google_creds_as_file(gcp_credentials):
+    temp = tempfile.NamedTemporaryFile()
+    temp.write(json.dumps(gcp_credentials).encode("utf-8"))
+    temp.flush()
+    return temp
+
+
+def get_pipeline_configuration(pipeline):
+    admin_document_key = get_secrets_from_project("google", "prod")["admin_spreadsheet"]
+    df = get_google_spreadsheet(admin_document_key)
+
+    df[["system", "direction", "variant", "operation", "include"]] = df.apply(
+        lambda row: determine_modal_attributes(row, pipeline), axis=1
+    )
+    df = df[df["include"] == 1]
+
+    df = df.reset_index(drop=True)
+    return df
+
+
 def convert_to_dict(v):
     try:
         v = load(v, Loader=Loader)
@@ -490,11 +598,64 @@ def get_secrets(
     return processed_secrets
 
 
-def get_google_spreadsheet(document_key, credential_path=""):
+def get_secrets_from_project(
+    project,
+    environment="",
+    provider="doppler",
+    provider_key=None,
+    use_lowercase=True,
+):
+    if provider == "doppler":
+        sdk = set_doppler()
+
+    config = f"{environment}"
+    try:
+        results = sdk.secrets.list(project=project, config=config)
+    except Exception as e:
+        print(e)
+        print()
+        print(json.loads(e.message)["messages"][0])
+        print()
+        try:
+            results = sdk.secrets.list(project=project, config=config)
+        except Exception as e:
+            print()
+            print(json.loads(e.message)["messages"][0])
+            print()
+            print("Available configs for this project:")
+            config_list = vars(sdk.configs.list(project=project))["configs"]
+            print()
+            for v in config_list:
+                print(" -", v["name"])
+            return ""
+
+    rds_secrets = vars(results)["secrets"]
+
+    # Process secrets: filter out keys containing "DOPPLER" and adjust case based on flag
+    if use_lowercase:
+        processed_secrets = {
+            k.lower(): convert_to_dict(v["computed"])
+            for k, v in rds_secrets.items()
+            if "DOPPLER" not in k
+        }
+    else:
+        processed_secrets = {
+            k.upper(): convert_to_dict(v["computed"])
+            for k, v in rds_secrets.items()
+            if "DOPPLER" not in k
+        }
+    return processed_secrets
+
+
+def get_google_spreadsheet(document_key):
     try:
         gc = pygsheets.authorize(service_account_env_var="SERVICE_ACCOUNT_JSON")
     except:
-        gc = pygsheets.authorize(service_file=credential_path)
+        gcp_credentials = get_secrets_from_project("google", "prod")[
+            "service_account_json"
+        ]
+        creds_file = _google_creds_as_file(gcp_credentials)
+        gc = pygsheets.authorize(service_account_file=creds_file.name)
 
     sh = gc.open_by_key(document_key)
     wks = sh.worksheet("title", "customer_db")
