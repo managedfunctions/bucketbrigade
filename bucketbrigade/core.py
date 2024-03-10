@@ -13,6 +13,7 @@ import dateparser
 import duckdb
 import modal
 import pandas as pd
+import pygsheets
 from unidecode import unidecode
 from dateutil import tz
 from dopplersdk import DopplerSDK
@@ -167,7 +168,7 @@ def setup_modal_uv_image(stub_name):
         .pip_install("uv")
         .run_commands(
             [
-                """uv pip install --compile "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
+                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
                 "force_build=True",
             ]
         )
@@ -322,35 +323,36 @@ def get_folder_from_variant(row):
     return folder
 
 
-def setup_project_db(cloud, provider="", project_prefix="mfs-"):
+def setup_project_db(cloud, provider="", customer_prefix="mfs-"):
     if not provider or provider == "doppler":
         sdk = set_doppler()
     results = sdk.projects.list(page=1, per_page=100)
     environments = ["prod", "test"]
-    directions = ["from", "to", "in"]
     all_configs = []
-    projects = vars(results)["projects"]
-    projects = [
-        project["slug"]
-        for project in projects
-        if project["slug"].startswith(project_prefix)
-    ]
-    for project in projects:
-        print(project)
-        configs = sdk.configs.list(project=project)
+    customers = vars(results)["projects"]
+    print(customers)
+    normalised_customers = []
+    for customer in customers:
+        print(customer)
+        if customer.get("slug", "").startswith(customer_prefix):
+            normalised_customers.append(customer["slug"])
+    for customer in normalised_customers:
+        print(customer)
+        configs = sdk.configs.list(project=customer)
         configs = vars(configs)["configs"]
         for config in configs:
             if config["name"] not in environments:
                 system = "_".join(config["name"].split("_")[1:])
+
                 environment = config["name"].split("_")[0]
                 config_object = {
-                    "project": project,
-                    "system": system,
+                    "customer": customer,
+                    "current_system": system,
                     "environment": environment,
                 }
                 variants = sdk.secrets.get(
-                    project=config_object["project"],
-                    config=f'{config_object["environment"]}_{config_object["system"]}',
+                    project=config_object["customer"],
+                    config=f'{config_object["environment"]}_{config_object["current_system"]}',
                     name="VARIANTS",
                 )
                 variants = vars(variants)["value"]["computed"]
@@ -363,13 +365,9 @@ def setup_project_db(cloud, provider="", project_prefix="mfs-"):
     df = pd.DataFrame(all_configs)
     df = df.explode("variants")
     df.variants = df.variants.fillna("")
-    df["function_type"] = df.variants.apply(
-        lambda x: "to_map" if "/" in x else "to_api"
-    )
-    df["direction"] = df.variants.apply(
-        lambda x: x.split("_")[0] if x.split("_")[0] in directions else ""
-    )
-    df["folder"] = df.apply(get_folder_from_variant, axis=1)
+    df["target_system"] = df.variants.str.split("/").str[0]
+    df["from_to_in"] = df.variants.str.split("/").str[1].str.split("_").str[0]
+    # df["folder"] = df.apply(get_folder_from_variant, axis=1)
     cloud.save_doc("s3://mfs-admin/configs/project_db.parquet", df, dated=False)
     return df
 
@@ -490,6 +488,19 @@ def get_secrets(
             processed_secrets, metadata.dimension
         )
     return processed_secrets
+
+
+def get_google_spreadsheet(document_key, credential_path=""):
+    try:
+        gc = pygsheets.authorize(service_account_env_var="SERVICE_ACCOUNT_JSON")
+    except:
+        gc = pygsheets.authorize(service_file=credential_path)
+
+    sh = gc.open_by_key(document_key)
+    wks = sh.worksheet("title", "customer_db")
+    records = wks.get_all_records()
+
+    return pd.DataFrame(records)
 
 
 def validate_df_rows(df: pd.DataFrame, model_class) -> (pd.DataFrame, list):
