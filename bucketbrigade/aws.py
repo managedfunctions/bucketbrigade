@@ -135,6 +135,20 @@ def get_output_docnames(
     return output_docpaths
 
 
+def get_secrets(secret_name, profile_name="mf", suffix="", account="422890657323"):
+    region_name = "ap-southeast-2"
+    if suffix:
+        arn = f"arn:aws:secretsmanager:{region_name}:{account}:secret:{secret_name}{suffix}"
+    else:
+        arn = f"arn:aws:secretsmanager:{region_name}:{account}:secret:{secret_name}"
+    try:
+        session = boto3.session.Session()
+    except:
+        session = boto3.session.Session(profile_name=profile_name)
+    client = session.client(service_name="secretsmanager", region_name=region_name)
+    return json.loads(client.get_secret_value(SecretId=arn)["SecretString"])
+
+
 def get_docpaths_to_process(parent_folder, include_string=""):
     """
     Identifies documents in the input path that need to be processed.
@@ -552,7 +566,7 @@ def sftp_to_s3(
     sftp = authenticate_sftp(sftp_config)
     sftp.cwd(sftp_config["from_customer_folder"])
     files = fetch_files_from_sftp(sftp)
-    for file in files[:1]:
+    for file in files[:]:
         print()
         print(bbcore.function_location)
         print(file.filename)

@@ -64,7 +64,8 @@ class Metadata(BaseModel):
     direction: str
     system: str
     object: str
-    variant: int
+    function_variant: int
+    location_variant: int
     dimension: Optional[str] = ""
     environment: str = "prod"
     timezone: str = "Australia/Sydney"
@@ -74,11 +75,13 @@ class Metadata(BaseModel):
 
     @computed_field
     def folder(self) -> str:
-        return f"{self.object}_variant_{self.variant}".replace(" ", "")
+        return f"{self.object}_variant_{self.location_variant}".replace(" ", "")
 
     @computed_field
     def function(self) -> str:
-        return f"{self.direction}_{self.system}_{self.folder}".replace(" ", "")
+        return f"{self.direction}_{self.system}_{self.object}_variant_{self.function_variant}".replace(
+            " ", ""
+        )
 
     @computed_field
     def bucket_path(self) -> str:
@@ -113,8 +116,8 @@ class Metadata(BaseModel):
         return f"{self.folder_path}/aggregate_folder"
 
     @computed_field
-    def map_path(self) -> str:
-        return f"{self.folder_path}/map_folder"
+    def review_path(self) -> str:
+        return f"{self.folder_path}/review_folder"
 
     @computed_field
     def today(self) -> str:
@@ -136,7 +139,8 @@ def get_metadata_from_docpath(docpath, dimension=""):
         direction=docpath_parts[1].split("_")[0],
         system=docpath_parts[1].rsplit("_", 1)[-1],
         object=docpath_parts[2].split("_variant_")[0],
-        variant=docpath_parts[2].split("_variant_")[-1],
+        function_variant="Change me to starmap",
+        location_variant=docpath_parts[2].split("_variant_")[-1],
         dimension=dimension,
         environment=docpath_parts[3],
     )
@@ -416,88 +420,133 @@ def process_all_apis(df_to_api, functions, cloud):
         process_function.local(metadata)
 
 
-def determine_modal_attributes(row, pipeline):
-    # Initialize default values for direction, variant, and operation
-    system, direction, variant, operation, include = None, None, None, None, 0
+def prepare_pipeline(pipeline, df):
+    df = df.copy()
+    df = df[
+        df.apply(
+            lambda x: pipeline in x["outbound_from_system"]
+            or pipeline in x["inbound_to_system"]
+            or pipeline in x["refined_in_system"],
+            axis=1,
+        )
+    ]
 
-    # Determine the source column based on the pipeline prefix
-    source_column = None
-    if row["outbound_from_system"].startswith(pipeline):
-        source_column = "outbound_from_system"
-        direction = "from"
-        system = row["outbound_from_system"].split(".")[0]
-        include = 1
-    elif row["inbound_to_system"].startswith(pipeline):
-        source_column = "inbound_to_system"
-        direction = "from"
-        system = row["outbound_from_system"].split(".")[0]
-        include = 1
-    elif row["refined_in_system"].startswith(pipeline):
-        source_column = "refined_in_system"
-        direction = "in"
-        system = row["refined_in_system"].split(".")[0]
-        include = 1
-    # If a source column is identified, extract variant and operation
-    if source_column:
-        parts = row[source_column].split(".")
-        if len(parts) >= 2:
-            operation = parts[-2]
-            variant = parts[-1]
-        elif len(parts) == 1:
-            variant = parts[0]
+    df["source"] = df.apply(
+        lambda x: "outbound"
+        if pipeline in x["outbound_from_system"]
+        else ("inbound" if pipeline in x["inbound_to_system"] else "refined"),
+        axis=1,
+    )
 
-    return pd.Series([system, direction, variant, operation, include])
+    df["direction"] = df.apply(
+        lambda x: "from"
+        if x["source"] == "outbound"
+        else ("from" if x["source"] == "inbound" else "in"),
+        axis=1,
+    )
+
+    df["system"] = df.apply(
+        lambda x: x["outbound_from_system"].split(".")[0]
+        if pipeline in x["outbound_from_system"]
+        else (
+            x["outbound_from_system"].split(".")[0]
+            if pipeline in x["inbound_to_system"]
+            else x["refined_in_system"].split(".")[0]
+        ),
+        axis=1,
+    )
+
+    df["function_variant"] = df.apply(
+        lambda x: x["outbound_from_system"].split(".")[-1]
+        if pipeline in x["outbound_from_system"]
+        else (
+            x["inbound_to_system"].split(".")[-1]
+            if pipeline in x["inbound_to_system"]
+            else x["refined_in_system"].split(".")[-1]
+        ),
+        axis=1,
+    )
+
+    df["location_variant"] = df.apply(
+        lambda x: x["outbound_from_system"].split(".")[-1]
+        if pipeline in x["outbound_from_system"]
+        else (
+            x["outbound_from_system"].split(".")[-1]
+            if pipeline in x["inbound_to_system"]
+            else x["refined_in_system"].split(".")[-1]
+        ),
+        axis=1,
+    )
+
+    df["operation"] = df.apply(
+        lambda x: x["outbound_from_system"].split(".")[-2]
+        if pipeline in x["outbound_from_system"]
+        else (
+            x["inbound_to_system"].split(".")[-2]
+            if pipeline in x["inbound_to_system"]
+            else x["refined_in_system"].split(".")[-2]
+        ),
+        axis=1,
+    )
+    return df
 
 
 def get_modal_function(metadata, outbound, inbound, refine):
+    print()
+    print(metadata.system, metadata.function)
+    print()
     if hasattr(outbound, metadata.function):
+        print("In outbound")
         process_function = getattr(outbound, metadata.function)
     elif hasattr(inbound, metadata.function):
+        print("In inbound")
         process_function = getattr(inbound, metadata.function)
     elif hasattr(refine, metadata.function):
+        print("In refine")
         process_function = getattr(refine, metadata.function)
     else:
-        process_function = modal.Function.lookup(metadata.system, metadata.function)
+        print("In Nothing")
+        process_function = None
+    #     process_function = modal.Function.lookup(metadata.system, metadata.function)
+    print()
     return process_function
 
 
-def process_functions(df, outbound, inbound, refine, cloud, show_details=False):
+def process_functions(
+    df, outbound, inbound, refine, cloud, stop_at=0, show_details=False
+):
+    if not stop_at:
+        stop_at = df.shape[0] + 1
     if df.empty:
         raise Exception("No data to process")
-    for k, row in df.iloc[:].iterrows():
+    for k, row in df.iloc[:stop_at].iterrows():
         print()
+        if show_details:
+            display(row)
         metadata = Metadata(
             bucket=row.customer,
             direction=row.direction,
             system=row.system,
             object=row.object,
-            variant=row.variant,
+            function_variant=row.function_variant,
+            location_variant=row.location_variant,
             prod=row.environment,
         )
         if show_details:
             display(metadata.model_dump())
         process_function = get_modal_function(metadata, outbound, inbound, refine)
-        if row.operation == "d":
-            docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
-            print(metadata.input_path)
-            print(f"Number of docpaths to process: {len(docpaths_to_process)}")
-            print()
-            if modal.is_local():
-                docpaths_to_process = docpaths_to_process[:1]
-            for docpath in docpaths_to_process:
-                if modal.is_local():
-                    process_function.local(docpath)
-                else:
-                    list(
-                        process_function.map(
-                            docpaths_to_process, return_exceptions=True
-                        )
+        if process_function:
+            if row.operation == "d":
+                docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
+                docobjects_to_process = [(x, metadata) for x in docpaths_to_process]
+                print(metadata.input_path)
+                print(f"Number of docpaths to process: {len(docpaths_to_process)}")
+                print()
+                list(
+                    process_function.starmap(
+                        docobjects_to_process, return_exceptions=True
                     )
-        else:
-            print(metadata.bucket, metadata.function)
-            print()
-            if modal.is_local():
-                process_function.local(metadata)
+                )
             else:
                 process_function.remote(metadata)
 
@@ -512,12 +561,6 @@ def _google_creds_as_file(gcp_credentials):
 def get_pipeline_configuration(pipeline):
     admin_document_key = get_secrets_from_project("google", "prod")["admin_spreadsheet"]
     df = get_google_spreadsheet(admin_document_key)
-
-    df[["system", "direction", "variant", "operation", "include"]] = df.apply(
-        lambda row: determine_modal_attributes(row, pipeline), axis=1
-    )
-    df = df[df["include"] == 1]
-
     df = df.reset_index(drop=True)
     return df
 
@@ -800,6 +843,7 @@ def validate_df(
     valid_columns = [
         col for col in model.__annotations__.keys() if col in validated_df.columns
     ]
+    print(valid_columns)
 
     if drop_missing:
         validated_df = validated_df.loc[:, valid_columns]
