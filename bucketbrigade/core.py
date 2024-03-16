@@ -562,7 +562,7 @@ def get_pipeline_configuration(pipeline, provider_key=None):
     admin_document_key = get_secrets_from_project(
         "google", "prod", provider_key=provider_key
     )["admin_spreadsheet"]
-    df = get_google_spreadsheet(admin_document_key)
+    df = get_google_spreadsheet(admin_document_key, provider_key=provider_key)
     df = df.reset_index(drop=True)
     return df
 
@@ -692,13 +692,13 @@ def get_secrets_from_project(
     return processed_secrets
 
 
-def get_google_spreadsheet(document_key):
+def get_google_spreadsheet(document_key, provider_key=None):
     try:
         gc = pygsheets.authorize(service_account_env_var="SERVICE_ACCOUNT_JSON")
     except:
-        gcp_credentials = get_secrets_from_project("google", "prod")[
-            "service_account_json"
-        ]
+        gcp_credentials = get_secrets_from_project(
+            "google", "prod", provider_key=provider_key
+        )["service_account_json"]
         creds_file = _google_creds_as_file(gcp_credentials)
         gc = pygsheets.authorize(service_account_file=creds_file.name)
 
