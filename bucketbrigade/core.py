@@ -558,8 +558,10 @@ def _google_creds_as_file(gcp_credentials):
     return temp
 
 
-def get_pipeline_configuration(pipeline):
-    admin_document_key = get_secrets_from_project("google", "prod")["admin_spreadsheet"]
+def get_pipeline_configuration(pipeline, provider_key=None):
+    admin_document_key = get_secrets_from_project(
+        "google", "prod", provider_key=provider_key
+    )["admin_spreadsheet"]
     df = get_google_spreadsheet(admin_document_key)
     df = df.reset_index(drop=True)
     return df
