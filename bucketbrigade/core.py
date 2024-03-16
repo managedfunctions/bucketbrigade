@@ -649,7 +649,7 @@ def get_secrets_from_project(
     use_lowercase=True,
 ):
     if provider == "doppler":
-        sdk = set_doppler()
+        sdk = set_doppler(provider_key=provider_key)
 
     config = f"{environment}"
     try:
