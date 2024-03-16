@@ -591,7 +591,7 @@ def get_secrets(
     use_lowercase=True,
 ):
     if provider == "doppler":
-        sdk = set_doppler()
+        sdk = set_doppler(provider_key=provider_key)
     # Build the config from metadata.system and metadata.environment
     if not config:
         config = f"{metadata.environment}_{metadata.system}"
