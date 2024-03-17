@@ -176,8 +176,8 @@ def setup_modal_uv_image(stub_name):
         .pip_install("uv")
         .run_commands(
             [
-                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" resend pygsheets --system""",
-                "force_build=True",
+                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
+                "force_build=False",
             ]
         )
     )
