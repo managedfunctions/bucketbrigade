@@ -5,6 +5,8 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
+import resend
+import markdown
 from typing import Any, Optional, Type
 from xml.etree import ElementTree as ET
 

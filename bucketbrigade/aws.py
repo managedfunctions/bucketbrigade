@@ -1,3 +1,4 @@
+from io import BytesIO
 import base64
 import csv
 import ftplib
@@ -5,8 +6,9 @@ import io
 import json
 import mimetypes
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import List
-from urllib.parse import quote_plus, unquote_plus
+from urllib.parse import quote_plus, unquote_plus, urlparse
 from xml.etree import ElementTree as ET
 
 import arrow
@@ -14,15 +16,16 @@ import boto3
 import dateutil
 import numpy as np
 import pandas as pd
-from pathlib import Path
 import pysftp
 import s3fs
 from botocore.exceptions import ClientError
+from magika import Magika
 from pydantic import BaseModel
 from textractor import Textractor
 from textractor.data.constants import TextractFeatures
 
 from bucketbrigade import core as bbcore
+
 
 s3 = s3fs.S3FileSystem(anon=False, default_cache_type="none")
 
@@ -644,6 +647,32 @@ def get_fs():
     return get_fs.fs
 
 
+def determine_file_type_s3(s3_path):
+    """
+    Reads a file from an S3 path and uses Magika to determine the file type.
+
+    :param s3_path: The S3 path to the file (e.g., "s3://bucket-name/path/to/file")
+    :return: The detected file type or None if unable to determine.
+    """
+    # Initialize S3FS
+    fs = s3fs.S3FileSystem(anon=False)  # Use anon=False if credentials are required
+
+    # Initialize Magika
+    m = Magika()
+
+    # Read the file content
+    with fs.open(s3_path, "rb") as f:
+        file_bytes = f.read()
+
+    # Use Magika to identify the file type
+    result = m.identify_bytes(file_bytes)
+
+    # Assuming result has a property or method to get the file type, adjust based on actual implementation
+    file_type = result.output.ct_label if result else "Unknown"
+
+    return file_type
+
+
 def upload_doc(local_path, docpath):
     # Create an S3 client
     s3 = boto3.client("s3")
@@ -653,36 +682,88 @@ def upload_doc(local_path, docpath):
     print(f"Object {prefix} was successfully uploaded to {docpath}.")
 
 
-def put_doc(
-    doc, docpath, content_type="", content_disposition="attachment", encode=True
-):
-    if encode:
-        try:
-            doc = base64.b64decode(doc)
-        except Exception:
-            try:
-                doc = doc.encode("utf-8")
-            except Exception as e:
-                print("Not base64 encoded or utf-8 encoded")
-                print(e)
-                pass
+# def put_doc(
+#     doc, docpath, content_type="", content_disposition="attachment", encode=True
+# ):
+#     if encode:
+#         try:
+#             doc = base64.b64decode(doc)
+#         except Exception:
+#             try:
+#                 doc = doc.encode("utf-8")
+#             except Exception as e:
+#                 print("Not base64 encoded or utf-8 encoded")
+#                 print(e)
+#                 pass
 
-    if not content_type:
-        guessed_type, _ = mimetypes.guess_type(docpath[1])
-        content_type = guessed_type or "application/octet-stream"
+#     if not content_type:
+#         guessed_type, _ = mimetypes.guess_type(docpath[1])
+#         content_type = guessed_type or "application/octet-stream"
 
-    metadata = {"ContentType": content_type, "ContentDisposition": content_disposition}
-    fs = get_fs()
-    if encode:
-        with fs.open(docpath, "wb", **metadata) as f:
-            f.write(doc)
-    else:
-        with fs.open(docpath, "w", **metadata) as f:
-            f.write(doc)
+#     metadata = {"ContentType": content_type, "ContentDisposition": content_disposition}
+#     fs = get_fs()
+#     if encode:
+#         with fs.open(docpath, "wb", **metadata) as f:
+#             f.write(doc)
+#     else:
+#         with fs.open(docpath, "w", **metadata) as f:
+#             f.write(doc)
 
-    info = fs.info(docpath)
-    object_size = info.get("size", 0)
-    if not object_size:
-        raise Exception(f"Failed to save doc to {docpath}")
-    else:
-        print(f"Saved doc to {docpath}")
+#     info = fs.info(docpath)
+#     object_size = info.get("size", 0)
+#     if not object_size:
+#         raise Exception(f"Failed to save doc to {docpath}")
+#     else:
+#         print(f"Saved doc to {docpath}")
+
+
+def determine_content_type_and_disposition(file_content):
+    magika = Magika()
+    result = magika.identify_bytes(file_content)
+    mime_type = result.output.mime_type
+    disposition = "inline" if mime_type == "application/pdf" else "attachment"
+    return mime_type, disposition
+
+
+def put_doc(file_object, docpath):
+    bucket_name, object_name = bucket_key_from_docpath(docpath)
+    try:
+        file_content = file_object.read()
+    except:
+        file_content = file_object
+
+    content_type, disposition = determine_content_type_and_disposition(file_content)
+
+    s3 = boto3.client("s3")
+    s3.upload_fileobj(
+        Fileobj=BytesIO(file_content),
+        Bucket=bucket_name,
+        Key=object_name,
+        ExtraArgs={
+            "ContentType": content_type,
+            "ContentDisposition": disposition,
+        },
+    )
+    file_object.seek(0)  # In case the file_object needs to be reused
+
+
+def generate_presigned_url(docpath, expiration=31536000):
+    bucket_name, object_name = bucket_key_from_docpath(docpath)
+    s3_client = boto3.client("s3")
+    return s3_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket_name, "Key": object_name},
+        ExpiresIn=expiration,
+    )
+
+
+def update_metadata_and_generate_url(docpath):
+    s3 = boto3.client("s3")
+    bucket_name, object_name = bucket_key_from_docpath(docpath)
+    response = s3.get_object(Bucket=bucket_name, Key=object_name)
+    file_content = response["Body"].read()
+
+    # Re-use the upload function to update the object with correct metadata
+    put_doc(BytesIO(file_content), docpath)
+
+    return generate_presigned_url(docpath)
