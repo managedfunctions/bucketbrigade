@@ -141,7 +141,7 @@ def get_metadata_from_docpath(docpath, dimension=""):
         direction=docpath_parts[1].split("_")[0],
         system=docpath_parts[1].rsplit("_", 1)[-1],
         object=docpath_parts[2].split("_variant_")[0],
-        function_variant="Change me to starmap",
+        function_variant=docpath_parts[2].split("_variant_")[-1],
         location_variant=docpath_parts[2].split("_variant_")[-1],
         dimension=dimension,
         environment=docpath_parts[3],
@@ -176,7 +176,13 @@ def setup_modal_uv_image(stub_name):
         .pip_install("uv")
         .run_commands(
             [
-                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" --system""",
+                """uv pip install "bucketbrigade @ git+https://www.github.com/managedfunctions/bucketbrigade.git" \ 
+                "instructor @ git+https://github.com/jxnl/instructor.git" \ 
+                s3fs>=2023.12.0 \ 
+                amazon-textract-textractor arrow boto3 botocore dateparser doppler-sdk duckdb \
+                fastparquet fastui magika mail-parser markdown modal openpyxl \
+                pandas peewee pyarrow pydantic pygsheets pymysql pysftp python-dateutil rank-bm25 \
+                resend unidecode xlrd --system""",
                 "force_build=False",
             ]
         )
