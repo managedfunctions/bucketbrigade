@@ -7,7 +7,7 @@ import json
 import mimetypes
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Union, Tuple
 from urllib.parse import quote_plus, unquote_plus, urlparse
 from xml.etree import ElementTree as ET
 
@@ -548,10 +548,17 @@ def fetch_files_from_sftp(sftp) -> List[str]:
     return [file for file in sftp.listdir_attr() if sftp.isfile(file.filename)]
 
 
-def save_file_to_s3(sftp, file_name: str, local_path: str, s3_path: str, encode=True):
-    sftp.get(file_name, local_path)
-    doc = Path(local_path).read_text()
-    put_doc(doc, s3_path, content_type="text/plain", encode=encode)
+# def save_file_to_s3(sftp, file_name: str, local_path: str, s3_path: str, encode=True):
+#     sftp.get(file_name, local_path)
+#     doc = Path(local_path).read_text()
+#     put_doc(doc, s3_path)
+
+
+def save_file_to_s3(sftp: pysftp.Connection, file_name: str, s3_path: str):
+    file_obj = BytesIO()
+    sftp.getfo(file_name, file_obj)
+    file_obj.seek(0)
+    put_doc(file_obj, s3_path)
 
 
 def sftp_to_s3(
@@ -569,14 +576,12 @@ def sftp_to_s3(
     sftp = authenticate_sftp(sftp_config)
     sftp.cwd(sftp_config["from_customer_folder"])
     files = fetch_files_from_sftp(sftp)
-    for file in files[:]:
+    for file in files[:1]:
         print()
-        print(bbcore.function_location)
         print(file.filename)
-        local_path = f"{bbcore.temp_path}/{doc_date}{file.filename}"
         s3_path = f"{metadata.input_path}/{doc_date}{bbcore.snake(file.filename)}"
-
-        save_file_to_s3(sftp, file.filename, local_path, s3_path, encode=encode)
+        print(s3_path)
+        save_file_to_s3(sftp, file.filename, s3_path)
         print(f"Saved to {s3_path}")
         if delete and doc_exists(s3_path):
             if archive_folder:
@@ -682,61 +687,76 @@ def upload_doc(local_path, docpath):
     print(f"Object {prefix} was successfully uploaded to {docpath}.")
 
 
-# def put_doc(
-#     doc, docpath, content_type="", content_disposition="attachment", encode=True
-# ):
-#     if encode:
-#         try:
-#             doc = base64.b64decode(doc)
-#         except Exception:
-#             try:
-#                 doc = doc.encode("utf-8")
-#             except Exception as e:
-#                 print("Not base64 encoded or utf-8 encoded")
-#                 print(e)
-#                 pass
+def determine_content_type_and_disposition(
+    file_content: Union[bytes, str, BytesIO],
+) -> Tuple[str, str]:
+    # Convert string to BytesIO
+    if isinstance(file_content, str):
+        file_content = BytesIO(file_content.encode("utf-8"))
+    elif isinstance(file_content, bytes):
+        file_content = BytesIO(file_content)
 
-#     if not content_type:
-#         guessed_type, _ = mimetypes.guess_type(docpath[1])
-#         content_type = guessed_type or "application/octet-stream"
+    # Ensure file_content is a BytesIO object at this point
+    if not isinstance(file_content, BytesIO):
+        raise ValueError("file_content must be bytes, str, or BytesIO.")
 
-#     metadata = {"ContentType": content_type, "ContentDisposition": content_disposition}
-#     fs = get_fs()
-#     if encode:
-#         with fs.open(docpath, "wb", **metadata) as f:
-#             f.write(doc)
-#     else:
-#         with fs.open(docpath, "w", **metadata) as f:
-#             f.write(doc)
+    file_content_bytes = file_content.getvalue()
 
-#     info = fs.info(docpath)
-#     object_size = info.get("size", 0)
-#     if not object_size:
-#         raise Exception(f"Failed to save doc to {docpath}")
-#     else:
-#         print(f"Saved doc to {docpath}")
-
-
-def determine_content_type_and_disposition(file_content):
     magika = Magika()
-    result = magika.identify_bytes(file_content)
-    mime_type = result.output.mime_type
-    disposition = "inline" if mime_type == "application/pdf" else "attachment"
+    try:
+        result = magika.identify_bytes(file_content_bytes)
+        if result.output.score > 0.90:  # High-confidence threshold
+            mime_type = result.output.mime_type
+            disposition = "inline" if mime_type == "application/pdf" else "attachment"
+        else:
+            mime_type = "application/octet-stream"
+            disposition = "attachment"
+    except Exception as e:
+        print(f"Error identifying MIME type with Magika: {e}")
+        mime_type = "application/octet-stream"
+        disposition = "attachment"
+
     return mime_type, disposition
+
+
+def convert_to_bytesio(input_data):
+    """
+    Converts input data to BytesIO object.
+
+    :param input_data: The input data to be converted. Can be a string, bytes, or a file-like object.
+    :return: A BytesIO object.
+    """
+    if isinstance(input_data, str):
+        return BytesIO(input_data.encode("utf-8"))
+    elif isinstance(input_data, bytes):
+        return BytesIO(input_data)
+    elif hasattr(input_data, "read"):
+        try:
+            return BytesIO(input_data.read())
+        except Exception as e:
+            raise ValueError(f"Error reading file object: {e}")
+    else:
+        raise TypeError("Unsupported input type")
 
 
 def put_doc(file_object, docpath):
     bucket_name, object_name = bucket_key_from_docpath(docpath)
-    try:
-        file_content = file_object.read()
-    except:
-        file_content = file_object
 
-    content_type, disposition = determine_content_type_and_disposition(file_content)
+    try:
+        file_content = convert_to_bytesio(file_object)
+    except (ValueError, TypeError) as e:
+        print(e)
+        return
+
+    # Determine content type and disposition
+    content_type, disposition = determine_content_type_and_disposition(
+        file_content.getvalue()
+    )
 
     s3 = boto3.client("s3")
+    file_content.seek(0)  # Ensure we're at the start of the BytesIO object
     s3.upload_fileobj(
-        Fileobj=BytesIO(file_content),
+        Fileobj=file_content,
         Bucket=bucket_name,
         Key=object_name,
         ExtraArgs={
@@ -744,7 +764,6 @@ def put_doc(file_object, docpath):
             "ContentDisposition": disposition,
         },
     )
-    file_object.seek(0)  # In case the file_object needs to be reused
 
 
 def generate_presigned_url(docpath, expiration=31536000):

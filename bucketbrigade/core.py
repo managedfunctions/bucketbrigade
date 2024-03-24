@@ -182,7 +182,7 @@ def setup_modal_uv_image(stub_name):
                 amazon-textract-textractor arrow boto3 botocore dateparser doppler-sdk duckdb \
                 fastparquet fastui magika mail-parser markdown modal openpyxl \
                 pandas peewee pyarrow pydantic pygsheets pymysql pysftp python-dateutil rank-bm25 \
-                resend unidecode xlrd --system""",
+                resend unidecode xlrd numpy --system""",
                 "force_build=False",
             ]
         )
@@ -191,6 +191,8 @@ def setup_modal_uv_image(stub_name):
     stub = modal.Stub(
         name=stub_name,
     )
+
+    # storage = modal.Volume.from_name("storage", create_if_missing=True)
     return image, stub
 
 
@@ -520,6 +522,22 @@ def get_modal_function(metadata, outbound, inbound, refine):
     return process_function
 
 
+def trigger_d(process_function, metadata, cloud):
+    docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
+    docobjects_to_process = [(x, metadata) for x in docpaths_to_process]
+    print(metadata.input_path)
+    print(f"Number of docpaths to process: {len(docobjects_to_process)}")
+    print()
+    list(process_function.starmap(docobjects_to_process, return_exceptions=True))
+
+
+def trigger_m(process_function, wait_type, metadata, cloud):
+    if wait_type == "remote":
+        process_function.remote(metadata)
+    else:
+        process_function.spawn(metadata)
+
+
 def process_functions(
     df, outbound, inbound, refine, cloud, stop_at=0, show_details=False
 ):
@@ -545,18 +563,9 @@ def process_functions(
         process_function = get_modal_function(metadata, outbound, inbound, refine)
         if process_function:
             if row.operation == "d":
-                docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
-                docobjects_to_process = [(x, metadata) for x in docpaths_to_process]
-                print(metadata.input_path)
-                print(f"Number of docpaths to process: {len(docpaths_to_process)}")
-                print()
-                list(
-                    process_function.starmap(
-                        docobjects_to_process, return_exceptions=True
-                    )
-                )
+                trigger_d(process_function, metadata, cloud)
             else:
-                process_function.remote(metadata)
+                trigger_m(process_function, "remote", metadata, cloud)
 
 
 def _google_creds_as_file(gcp_credentials):
