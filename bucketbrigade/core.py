@@ -182,7 +182,7 @@ def setup_modal_uv_image(stub_name):
                 amazon-textract-textractor arrow boto3 botocore dateparser doppler-sdk duckdb \
                 fastparquet fastui magika mail-parser markdown modal openpyxl \
                 pandas peewee pyarrow pydantic pygsheets pymysql pysftp python-dateutil rank-bm25 \
-                resend unidecode xlrd numpy libsql_experimental --system""",
+                resend unidecode xlrd numpy libsql_experimental streamlit --system""",
                 "force_build=False",
             ]
         )
