@@ -8,6 +8,7 @@ arrow
 duckdb
 pyarrow
 doppler-sdk
+libsql_experimental
 fastui
 unidecode
 fastparquet

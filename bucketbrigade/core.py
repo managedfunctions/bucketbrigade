@@ -192,8 +192,11 @@ def setup_modal_uv_image(stub_name):
         name=stub_name,
     )
 
-    # storage = modal.Volume.from_name("storage", create_if_missing=True)
-    return image, stub
+    storage = modal.Volume.from_name("storage", create_if_missing=True)
+
+    storage_folder = "/storage"
+
+    return image, stub, storage, storage_folder
 
 
 def setup_modal_image(stub_name, force_build=False):
@@ -524,11 +527,16 @@ def get_modal_function(metadata, outbound, inbound, refine):
 
 def trigger_d(process_function, metadata, cloud):
     docpaths_to_process = cloud.get_docpaths_to_process(metadata.input_path)
-    docobjects_to_process = [(x, metadata) for x in docpaths_to_process]
+    docobjects_to_process = [[x, metadata] for x in docpaths_to_process]
     print(metadata.input_path)
-    print(f"Number of docpaths to process: {len(docobjects_to_process)}")
+    print(f"Number of docpaths to process: {len(docpaths_to_process)}")
     print()
-    list(process_function.starmap(docobjects_to_process, return_exceptions=True))
+    for docobject in process_function.starmap(
+        docobjects_to_process, return_exceptions=True
+    ):
+        print(docobject)
+        print()
+    return "success"
 
 
 def trigger_m(process_function, wait_type, metadata, cloud):
@@ -639,7 +647,8 @@ def get_secrets(
             return ""
 
     rds_secrets = vars(results)["secrets"]
-
+    # print("RDS ")
+    # print(rds_secrets)
     # Process secrets: filter out keys containing "DOPPLER" and adjust case based on flag
     if use_lowercase:
         processed_secrets = {
